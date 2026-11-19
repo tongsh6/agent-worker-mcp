@@ -368,6 +368,7 @@ pnpm measure:leader -- --since-hours 24
 | Kimi | `WORKER_KIMI_MODEL` | Kimi CLI 自身默认（`kimi-code/k3.1-pro`） | **会话级**（ACP config option，池化后零成本切换） |
 
 Kimi 可选值：`kimi-code/k3.1-pro`（默认）、`kimi-code/k3.1-pro-highspeed`（**2x usage cost**）、`kimi-code/k3`、`kimi-code/k3-256k`、`kimi-code/kimi-for-coding`、`kimi-code/kimi-for-coding-highspeed`。
+思考档位：`low` / `high` / `max`（DSH 走 `WORKER_SDK_REASONING_EFFORT`，Kimi 走 `WORKER_KIMI_EFFORT`）。
 **配错会直接报错并列出可用项**，不会静默回落默认模型。
 
 `worker_describe.models` 会回报当前生效的模型与对应的环境变量：
@@ -402,6 +403,7 @@ Kimi 可选值：`kimi-code/k3.1-pro`（默认）、`kimi-code/k3.1-pro-highspee
 | `WORKER_KIMI_COMMAND` | `kimi` | Kimi Code CLI 可执行文件 |
 | `WORKER_KIMI_ARGS` | `acp` | Kimi 启动参数（默认 `kimi acp`，ACP over stdio） |
 | `WORKER_KIMI_MODEL` | 无 | **会话级**模型，如 `kimi-code/k3`；留空 = Kimi CLI 默认 |
+| `WORKER_KIMI_EFFORT` | 无 | **会话级**思考档位 `low`/`high`/`max`；留空 = 模型默认（k3 系为 `high`） |
 | `WORKER_KIMI_INIT_TIMEOUT_S` | `60` | Kimi ACP 握手超时（秒） |
 | `WORKER_KIMI_IDLE_MIN` | `10` | Kimi 进程池空闲回收（分钟） |
 | `WORKER_KIMI_IDLE_AFTER_TOOL_S` | `120` | 工具完成后无事件多久主动收尾（防上游故障误判）；`0` = 关闭 |
