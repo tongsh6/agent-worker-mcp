@@ -9,10 +9,6 @@ describe('loadConfig（合并自本机在用版 bridge 的配置项）', () => {
     expect(loadConfig({}).defaultTimeoutMs).toBe(1_800_000);
   });
 
-  it('默认版本号随合并升级', () => {
-    expect(loadConfig({}).version).toBe('0.10.0');
-  });
-
   it('默认单价是 DeepSeek 估算价', () => {
     expect(loadConfig({}).pricing).toEqual(DEFAULT_PRICING);
   });

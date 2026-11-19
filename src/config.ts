@@ -1,9 +1,13 @@
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve, sep } from 'node:path';
 import { WorkerError } from './errors.js';
 import type { DshPatchMode } from './dsh-patch.js';
 import { DEFAULT_PRICING, type PricingConfig } from './pricing.js';
+
+const { version: packageVersion } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+  version: string;
+};
 
 export type PermissionMode = 'read-only' | 'workspace-write' | 'danger-full-access';
 
@@ -145,7 +149,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
 
   return {
     name: 'dsh-mcp-worker',
-    version: '0.10.0',
+    version: packageVersion,
     backend: env.DSH_MCP_BACKEND?.trim() === 'headless' ? 'headless' : 'sdk',
     transport: env.DSH_MCP_TRANSPORT?.trim() === 'http' ? 'http' : 'stdio',
     http: {

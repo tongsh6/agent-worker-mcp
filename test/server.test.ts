@@ -4,7 +4,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { WorkerConfig } from '../src/config.js';
+import { version as packageVersion } from '../package.json';
+import { loadConfig, type WorkerConfig } from '../src/config.js';
 import { createWorkerServer } from '../src/server.js';
 import { TaskManager } from '../src/task-manager.js';
 import { MemoryStore, makeFakeRunner, makeTestConfig } from './helpers.js';
@@ -109,6 +110,13 @@ describe('MCP server（内存传输）', () => {
     expect(payload.tools).toBeTruthy();
     expect(payload.limits).toBeTruthy();
     expect(payload.defaults).toMatchObject({ pricing: expect.any(Object) });
+  });
+
+  it('MCP 握手与 dsh_describe 都报告 package.json 的版本', async () => {
+    const { client } = await connectClient({ config: { version: loadConfig({}).version } });
+    const payload = parsePayload(await client.callTool({ name: 'dsh_describe', arguments: {} }));
+
+    expect([client.getServerVersion()?.version, payload.version]).toEqual([packageVersion, packageVersion]);
   });
 
   it('dsh_usage 聚合任务用量与费用口径', async () => {
