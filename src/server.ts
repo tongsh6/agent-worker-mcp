@@ -421,13 +421,16 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
             dsh: {
               provider: config.sdk.provider,
               model: config.sdk.model,
-              ...(config.sdk.reasoningEffort ? { reasoning_effort: config.sdk.reasoningEffort } : {}),
-              env: 'WORKER_SDK_MODEL',
+              model_env: 'WORKER_SDK_MODEL',
+              effort: config.sdk.reasoningEffort ?? null,
+              effort_env: 'WORKER_SDK_REASONING_EFFORT',
             },
             kimi: {
               model: config.kimi.model ?? null,
-              env: 'WORKER_KIMI_MODEL',
-              note: '会话级切换（ACP config option）；留空 = 用 Kimi CLI 自身默认模型',
+              model_env: 'WORKER_KIMI_MODEL',
+              effort: config.kimi.effort ?? null,
+              effort_env: 'WORKER_KIMI_EFFORT',
+              note: '会话级切换（ACP config option model/thinking）；留空 = 用 Kimi CLI 与模型默认',
             },
           },
           kimi: {

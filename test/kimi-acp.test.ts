@@ -231,6 +231,60 @@ describe('Kimi 会话级模型配置', () => {
     await expect(creating).rejects.toThrow(/kimi-code\/k3/);
   });
 
+  it('同时配置 model 与 effort 时，两者都按会话设置', async () => {
+    const { client, sent, emit } = makeAgent();
+    const backend = new KimiAcpBackend({ client, permissionMode: 'workspace-write', model: 'kimi-code/k3', effort: 'low' });
+    const creating = backend.newSession('C:/p');
+    await waitFor(() => sent.some((m) => m.method === 'session/new'));
+    const newReq = sent.find((m) => m.method === 'session/new');
+    emit({
+      jsonrpc: '2.0',
+      id: newReq?.id,
+      result: {
+        sessionId: 's1',
+        configOptions: [
+          { id: 'model', options: [{ value: 'kimi-code/k3' }] },
+          { id: 'thinking', options: [{ value: 'low' }, { value: 'high' }, { value: 'max' }] },
+        ],
+      },
+    });
+    await waitFor(() => sent.some((m) => m.method === 'session/set_mode'));
+    const modeReq = sent.find((m) => m.method === 'session/set_mode');
+    emit({ jsonrpc: '2.0', id: modeReq?.id, result: {} });
+
+    await waitFor(() => sent.some((m) => m.method === 'session/set_config_option' && m.params?.configId === 'model'));
+    const modelReq = sent.find((m) => m.method === 'session/set_config_option' && m.params?.configId === 'model');
+    emit({ jsonrpc: '2.0', id: modelReq?.id, result: { configOptions: [{ id: 'model', options: [{ value: 'kimi-code/k3' }] }] } });
+
+    await waitFor(() => sent.some((m) => m.method === 'session/set_config_option' && m.params?.configId === 'thinking'));
+    const effortReq = sent.find((m) => m.method === 'session/set_config_option' && m.params?.configId === 'thinking');
+    expect(effortReq?.params).toMatchObject({ sessionId: 's1', configId: 'thinking', value: 'low' });
+    emit({ jsonrpc: '2.0', id: effortReq?.id, result: { configOptions: [{ id: 'thinking', options: [{ value: 'low' }, { value: 'high' }] }] } });
+
+    await expect(creating).resolves.toBe('s1');
+    expect(backend.availableEfforts).toContain('low');
+  });
+
+  it('effort 不可用时直接失败并列出可用档位', async () => {
+    const { client, sent, emit } = makeAgent();
+    const backend = new KimiAcpBackend({ client, permissionMode: 'workspace-write', effort: 'ultra' });
+    const creating = backend.newSession('C:/p');
+    await waitFor(() => sent.some((m) => m.method === 'session/new'));
+    const newReq = sent.find((m) => m.method === 'session/new');
+    emit({
+      jsonrpc: '2.0',
+      id: newReq?.id,
+      result: { sessionId: 's1', configOptions: [{ id: 'thinking', options: [{ value: 'low' }, { value: 'high' }] }] },
+    });
+    await waitFor(() => sent.some((m) => m.method === 'session/set_mode'));
+    const modeReq = sent.find((m) => m.method === 'session/set_mode');
+    emit({ jsonrpc: '2.0', id: modeReq?.id, result: {} });
+    await waitFor(() => sent.some((m) => m.method === 'session/set_config_option' && m.params?.configId === 'thinking'));
+    const effortReq = sent.find((m) => m.method === 'session/set_config_option' && m.params?.configId === 'thinking');
+    emit({ jsonrpc: '2.0', id: effortReq?.id, error: { code: -32603, message: 'unknown level' } });
+    await expect(creating).rejects.toThrow(/low, high/);
+  });
+
   it('未配置 model 时不会发 set_config_option', async () => {
     const { client, sent, emit } = makeAgent();
     const backend = new KimiAcpBackend({ client, permissionMode: 'workspace-write' });

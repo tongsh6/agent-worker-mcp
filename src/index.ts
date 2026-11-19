@@ -72,6 +72,7 @@ const kimiPool = new KimiBackendPool({
   idleMs: config.kimi.idleMs,
   idleAfterToolMs: config.kimi.idleAfterToolMs,
   ...(config.kimi.model ? { model: config.kimi.model } : {}),
+  ...(config.kimi.effort ? { effort: config.kimi.effort } : {}),
 });
 const kimiRunner: TaskRunner = createKimiRunner({ pool: kimiPool });
 
