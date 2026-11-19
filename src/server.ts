@@ -30,6 +30,7 @@ const INSTRUCTIONS = [
   '使用顺序：1) dsh_run 提交（可带 wait_s=60–120 在本次调用里直接等结果）；2) dsh_status(task_id, wait_s=长轮询，建议 60–120s) 等到终态；3) dsh_result 取结果；中断用 dsh_cancel。不要 5–25 秒高频轮询，也不要在 DSH 执行期间重复做同一件事。',
   'cwd 必须是具体项目目录绝对路径（不要用用户主目录；Windows 沙箱下 shell 可能不可用）。',
   'permission_mode：默认 auto（worker 按 cwd 能力自动选 workspace-write / worktree / read-only / danger-full-access，调用方不需要手选）；也可显式传 read-only / workspace-write / danger-full-access。',
+  '执行后端：默认不要传 backend，跟随 worker 全局默认（DSH_MCP_BACKEND）；只有明确需要 Kimi Code 的额度/模型时才传 backend="kimi"。两者能力不同，用 dsh_describe.backend_capabilities 查；dsh_result.capability_gaps 会列出本次任务实际缺失的能力（Kimi 无计费级 token 用量与 token 预算护栏、无 OS 级沙箱与 ACL/worktree 兜底）。',
   '并行：彼此独立的工作流用一次 dsh_batch_run 派发（每个任务仍各自包含完整验收），不要拆成串行小任务。',
   '续聊：同一工作单元后续修正把首次返回的 session_id 传回 dsh_run，不要新建多个孤立任务。',
   '验收：leader 只审阅结构化事实并决定是否返工——优先看 dsh_result 的 evidence（命令退出码/变更文件/git diff 摘要）与 outcome；outcome=needs_decision 时用原 session_id 回答；output 是 DSH 的叙述，不作为唯一依据。不要逐步重做 DSH 已完成的工作；DSH 失败时把 error 原样反馈用户。',
@@ -93,6 +94,12 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
         ),
       cwd: z.string().optional().describe('任务执行目录（绝对路径）；缺省依次用 DSH_MCP_DEFAULT_CWD、worker 进程 cwd'),
       session_id: z.string().optional().describe('续聊已有 DSH 会话时传入；同一 session 的任务串行执行'),
+      backend: z
+        .enum(['dsh', 'kimi'])
+        .optional()
+        .describe(
+          '专家开关：默认不要传，跟随全局默认（DSH_MCP_BACKEND）。只有明确需要 Kimi Code 的额度/模型时才传 kimi；能力差异见 dsh_describe.backend_capabilities',
+        ),
       permission_mode: z
         .enum(RUN_PERMISSION_MODES)
         .optional()
@@ -159,6 +166,7 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
               sessionId: args.session_id,
               permissionMode: args.permission_mode,
               timeoutMs: args.timeout_s ? args.timeout_s * 1_000 : undefined,
+              ...(args.backend ? { backend: args.backend } : {}),
               ...(idemKey ? { idempotencyKey: idemKey } : {}),
             },
             { onProgress },
@@ -187,6 +195,7 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
           session_id: current.sessionId ?? null,
           cwd: current.cwd,
           permission_mode: current.permissionMode,
+          backend: current.backend ?? config.backend,
           created_at: current.createdAt,
           idempotent_reuse: idempotentReuse,
           hint: idempotentReuse
@@ -333,6 +342,13 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
           output,
           artifacts,
           approval,
+          ...(record
+            ? {
+                backend: record.backend ?? 'dsh',
+                capability_gaps: capabilityGaps(record, config.maxTaskTokens),
+                ...(record.contextTokens ? { context_tokens: record.contextTokens } : {}),
+              }
+            : {}),
           output_pagination: outputPagination,
           ...(artifacts.length > 0 && !paged
             ? { read_hint: '完整产物可用 dsh_read_result（source=result/events，offset 分页）读取，或直接 dsh_result(offset=next_offset, max_chars=N) 续读' }
@@ -392,6 +408,10 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
             home: config.dshHome,
           },
           backend: config.backend,
+          backend_default: config.backend === 'kimi' ? 'kimi' : 'dsh',
+          backends: ['dsh', 'kimi'],
+          backend_capabilities: BACKEND_CAPABILITIES,
+          kimi: { command: config.kimi.command, args: config.kimi.args },
           ...(config.backend === 'sdk'
             ? {
                 sdk: {
@@ -794,6 +814,49 @@ function snapshotMcpMetrics(metrics: McpMetrics): Record<string, unknown> {
       ]),
     ),
   };
+}
+
+/**
+ * 各执行后端的真实能力（声明式）。
+ * 切换后端时差异必须可见——静默降级比不支持更危险：leader 会基于同一套证据做决策。
+ */
+export const BACKEND_CAPABILITIES = {
+  dsh: {
+    session_resume: true,
+    /** 会话上下文占用（used/size）。DSH 的 usage 事件带的是计费口径 token，这里不重复暴露。 */
+    context_usage: false,
+    billing_usage: true,
+    token_budget_guard: true,
+    enforced_sandbox: true,
+    acl_worktree_fallback: true,
+    read_only_enforced: true,
+  },
+  kimi: {
+    /** 已接 ACP session/load（会回放历史，恢复完整上下文）。 */
+    session_resume: true,
+    /** 实测 usage_update = {used, size}：只有上下文占用，没有 input/output 计费口径。 */
+    context_usage: true,
+    billing_usage: false,
+    token_budget_guard: false,
+    enforced_sandbox: false,
+    acl_worktree_fallback: false,
+    // plan 模式不执行工具，只读语义成立；但它不是文件系统级隔离
+    read_only_enforced: true,
+  },
+} as const;
+
+/** 本次任务在所选后端上缺失的能力：显式报出来，不静默降级。 */
+export function capabilityGaps(
+  record: { backend?: 'dsh' | 'kimi'; permissionMode?: string },
+  maxTaskTokens: number,
+): string[] {
+  if ((record.backend ?? 'dsh') !== 'kimi') return [];
+  const gaps: string[] = ['billing_usage', 'acl_worktree_fallback'];
+  if (maxTaskTokens > 0) gaps.push('token_budget_guard');
+  if (record.permissionMode === 'workspace-write' || record.permissionMode === 'danger-full-access') {
+    gaps.push('enforced_sandbox');
+  }
+  return gaps;
 }
 
 function registerTool(server: McpServer, name: string, spec: ToolSpec): void {

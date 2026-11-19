@@ -14,7 +14,7 @@ export type PermissionMode = 'read-only' | 'workspace-write' | 'danger-full-acce
 export const PERMISSION_MODES: PermissionMode[] = ['read-only', 'workspace-write', 'danger-full-access'];
 
 /** 任务执行后端：headless = 每任务一个进程；sdk = 长驻 `dsh --profile sdk`。 */
-export type BackendKind = 'headless' | 'sdk';
+export type BackendKind = 'headless' | 'sdk' | 'kimi';
 
 /** MCP 传输：stdio（本地 leader）/ http（Streamable HTTP，远程 leader）。 */
 export type TransportKind = 'stdio' | 'http';
@@ -36,6 +36,17 @@ export interface SdkRuntimeConfig {
   initTimeoutMs: number;
 }
 
+/** Kimi Code CLI（ACP 后端）配置：命令、参数、握手超时。 */
+export interface KimiRuntimeConfig {
+  /** kimi 可执行文件（在 PATH 上直接写 kimi）。 */
+  command: string;
+  /** 默认 ['acp']；启动 `kimi acp` 走 ACP over stdio。 */
+  args: string[];
+  initTimeoutMs: number;
+  /** 进程池空闲回收时长（毫秒）：超过且无活跃会话则关掉进程。 */
+  idleMs: number;
+}
+
 /** 如何拉起 DSH：`node <bin.js>` 最稳（绕开 Windows .cmd 的 spawn 问题）。 */
 export interface DshEntry {
   command: string;
@@ -52,6 +63,8 @@ export interface WorkerConfig {
   backend: BackendKind;
   /** 长驻 SDK 后端配置。 */
   sdk: SdkRuntimeConfig;
+  /** Kimi Code CLI（ACP）后端配置；与 sdk/headless 并存，按任务切换。 */
+  kimi: KimiRuntimeConfig;
   /** MCP 传输方式。 */
   transport: TransportKind;
   /** HTTP 传输配置（transport=http 时生效）。 */
@@ -150,7 +163,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   return {
     name: 'dsh-mcp-worker',
     version: packageVersion,
-    backend: env.DSH_MCP_BACKEND?.trim() === 'headless' ? 'headless' : 'sdk',
+    backend: parseBackendKind(env.DSH_MCP_BACKEND),
     transport: env.DSH_MCP_TRANSPORT?.trim() === 'http' ? 'http' : 'stdio',
     http: {
       host: env.DSH_MCP_HTTP_HOST?.trim() || '127.0.0.1',
@@ -169,6 +182,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
         : {}),
       idleMs: readInt(env, 'DSH_MCP_SDK_IDLE_MIN', 10, 1, 240) * 60_000,
       initTimeoutMs: readInt(env, 'DSH_MCP_SDK_INIT_TIMEOUT_S', 300, 10, 900) * 1_000,
+    },
+    kimi: {
+      command: env.DSH_MCP_KIMI_COMMAND?.trim() || 'kimi',
+      args: env.DSH_MCP_KIMI_ARGS?.trim() ? env.DSH_MCP_KIMI_ARGS.trim().split(/\s+/) : ['acp'],
+      initTimeoutMs: readInt(env, 'DSH_MCP_KIMI_INIT_TIMEOUT_S', 60, 10, 900) * 1_000,
+      idleMs: readInt(env, 'DSH_MCP_KIMI_IDLE_MIN', 10, 1, 240) * 60_000,
     },
     profile: env.DSH_MCP_PROFILE?.trim() || 'headless',
     dsh: resolveDshEntry(env),
@@ -219,6 +238,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     idemTtlMs: readInt(env, 'DSH_MCP_IDEM_TTL_H', 24, 0, 8_760) * 3_600_000,
     idemDir: resolve(env.DSH_MCP_IDEM_DIR?.trim() || join(dshHome, 'mcp-idem')),
   };
+}
+
+/** DSH_MCP_BACKEND：sdk（默认）/ headless / kimi；未知值按 sdk 处理。 */
+export function parseBackendKind(value: string | undefined): BackendKind {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'headless' || normalized === 'kimi') return normalized;
+  return 'sdk';
 }
 
 function parseStatusDetail(value: string | undefined): 'summary' | 'events' {

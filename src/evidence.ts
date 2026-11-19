@@ -84,6 +84,13 @@ export function parseCommandExit(text: string, isError: boolean): { exitCode: nu
     markers.push(exit[0]);
     return { exitCode: Number(exit[1]), markers };
   }
+  // Kimi Code 的 shell 工具把退出码写在正文里（"Command failed with exit code: 2."），
+  // 不解析就会把失败命令记成 exit_code 0。
+  const kimiExit = text.match(/command failed with exit code:?\s*(-?\d+)/i);
+  if (kimiExit) {
+    markers.push(`[exit code: ${kimiExit[1]}]`);
+    return { exitCode: Number(kimiExit[1]), markers };
+  }
   const stopped = text.match(/\[stopped:[^\]]*\]/i);
   if (stopped) return { exitCode: null, markers: [stopped[0]] };
   return { exitCode: isError ? null : 0, markers };

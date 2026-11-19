@@ -117,6 +117,7 @@ export function makeTestConfig(overrides: Partial<WorkerConfig> = {}): WorkerCon
       idleMs: 60_000,
       initTimeoutMs: 30_000,
     },
+    kimi: { command: 'kimi', args: ['acp'], initTimeoutMs: 30_000 },
     dshPatch: 'apply',
     aclFallback: 'read-only',
     statusWaitMaxMs: 30_000,
