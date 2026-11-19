@@ -2,7 +2,7 @@
 """监控 codex thread 的 GPT 配额/token 消耗与 dsh worker 分摊情况。
 
 合并自本机 Codex 在用的 dsh-mcp bridge（`~/scripts/dsh-mcp/monitor-thread.py`），
-适配本仓库（dsh-mcp-worker）的任务落盘格式；两个版本的落盘数据都会扫描。
+适配本仓库（agent-worker-mcp）的任务落盘格式；两个版本的落盘数据都会扫描。
 
 用法:
   python3 monitor-thread.py                          # 自动选最近活跃的 thread
@@ -17,7 +17,7 @@
   - ~/.codex/thread_history_1.sqlite thread_turns（turn 起止/状态/时长）、thread_items（操作与 MCP 调用）
   - <rollout>.jsonl                  token_usage_record / token_count（含 rate_limits.used_percent）
   - ~/.dsh/sessions/<cwd>/session-*  worker 会话（工具调用数、写文件数）
-  - ~/.dsh/mcp-tasks/<task-id>/      本仓库 worker 任务记录（meta.json），可用 DSH_MCP_TASKS_DIR 覆盖
+  - ~/.dsh/mcp-tasks/<task-id>/      本仓库 worker 任务记录（meta.json），可用 WORKER_TASKS_DIR 覆盖
   - ~/.dsh-mcp/jobs/*.log            旧版 bridge（server.mjs）派活日志（兼容）
 """
 import argparse, glob, json, os, sqlite3, subprocess, sys, datetime
@@ -30,7 +30,7 @@ DSH_SESS = os.path.join(HOME, ".dsh/sessions")
 # 旧版 bridge（server.mjs）的 job 日志目录
 JOBS = os.path.join(HOME, ".dsh-mcp/jobs")
 # 本仓库 worker 的任务目录（默认 <DSH_HOME>/mcp-tasks）
-TASKS = os.environ.get("DSH_MCP_TASKS_DIR") or os.path.join(HOME, ".dsh", "mcp-tasks")
+TASKS = os.environ.get("WORKER_TASKS_DIR") or os.path.join(HOME, ".dsh", "mcp-tasks")
 
 
 def local(ts, with_date=False):
@@ -293,8 +293,8 @@ def report(data, cutover_ts, recent_min):
     # 派活
     print()
     print("dsh worker 派活")
-    dispatch = [m for m in data["mcp_items"] if m[1] in ("dsh_dispatch", "dsh_dispatch_async", "dsh_run", "dsh_batch_run")]
-    polls = [m for m in data["mcp_items"] if m[1] in ("dsh_job_status", "dsh_job", "dsh_status")]
+    dispatch = [m for m in data["mcp_items"] if m[1] in ("dsh_dispatch", "dsh_dispatch_async", "worker_run", "worker_batch_run")]
+    polls = [m for m in data["mcp_items"] if m[1] in ("dsh_job_status", "dsh_job", "worker_status")]
     print(f"  派活 {len(dispatch)} 次，轮询 {len(polls)} 次")
     for ts, tool, task in dispatch:
         print(f"    {local(ts)}  {tool:<20} {task[:70]}")

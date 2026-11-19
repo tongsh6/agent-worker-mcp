@@ -1,6 +1,6 @@
 # 目标达成率测量：leader 提速 & 省 token/额度
 
-> 目标前提：**Codex/ChatGPT、Claude Code 是 leader**，通过 `dsh-mcp-worker` 把重活交给 DSH（DeepSeek）执行。
+> 目标前提：**Codex/ChatGPT、Claude Code 是 leader**，通过 `agent-worker-mcp` 把重活交给 DSH（DeepSeek）执行。
 > 要核对的两件事：① leader 是否更快；② leader 是否更省 token/额度。附带守门项：正确性不能变差。
 
 ---
@@ -32,7 +32,7 @@
    - 跑测试/修失败（需要 shell）。
 2. **固定环境**：同一 repo、同一 commit/分支；写操作类任务用独立 worktree 或分支，A/B 各跑一次后丢弃。
 3. **同一 prompt**；委派组在 prompt 末尾加固定指令（A/B 工具会自动加）：
-   > 请把主体工作交给 dsh worker：先 `dsh_run` 提交，再 `dsh_status` 轮询，最后 `dsh_result` 取结果；不要自己逐步执行。
+   > 请把主体工作交给 dsh worker：先 `worker_run` 提交，再 `worker_status` 轮询，最后 `worker_result` 取结果；不要自己逐步执行。
 4. **重复次数**：每任务 `--runs 3`，看均值/中位数，单次方差很大。
 5. **正确性断言**：能给断言就给（如输出包含某文件名、测试通过、目标文件生成），用 `--expect`。
 6. **记录**：每次运行会保存 `measure-runs/*-solo-*.json` / `*-delegated-*.json` 与 `report-*.md`。
@@ -43,7 +43,7 @@
 
 ```powershell
 # A/B 对照（Claude Code 自动计量；会真实消耗 leader 额度，建议先小任务试跑）
-cd C:\path\to\dsh-mcp-worker
+cd C:\path\to\agent-worker-mcp
 node scripts/measure-goals.mjs ab `
   --cwd D:\work\your-repo `
   --task "统计 src 下 .ts 文件数量并列出最大的 3 个（只读分析，不要改文件）" `
@@ -56,7 +56,7 @@ node scripts/leader-usage.mjs --since-hours 24
 node scripts/leader-usage.mjs --since-hours 24 --cwd-filter worklog --json
 
 # worker 侧视角（DSH token、任务耗时、成功率）
-# 在 leader 里调用 dsh_metrics / dsh_tasks
+# 在 leader 里调用 worker_metrics / worker_tasks
 ```
 
 报告里会输出：每次 run 的墙钟、加速比、leader token、节省率、cost 节省、正确性、DSH 任务数/token、DSH token/省下 leader token，以及「目标达成率 x/2 或 x/3」。
@@ -65,7 +65,7 @@ node scripts/leader-usage.mjs --since-hours 24 --cwd-filter worklog --json
 
 ## 4. 现状实测（2026-11-02，单次样本，仅作方法验证）
 
-任务：`统计 src 下 .ts 文件数量并列出最大的 3 个（只读分析）`，cwd = dsh-mcp-worker 仓库。
+任务：`统计 src 下 .ts 文件数量并列出最大的 3 个（只读分析）`，cwd = agent-worker-mcp 仓库。
 
 | 指标 | solo（leader 自己做） | delegated（委派 DSH） | 结果 |
 |---|---|---|---|

@@ -9,9 +9,9 @@
 
 每多一个 DSH 任务，leader 至少多付：
 
-1. 一次 `dsh_run` 工具调用 + 任务描述生成；
-2. 若干次 `dsh_status` 轮询（受客户端超时限制，通常 25–120s 一次）；
-3. 一次 `dsh_result` 读取 + 结果判断；
+1. 一次 `worker_run` 工具调用 + 任务描述生成；
+2. 若干次 `worker_status` 轮询（受客户端超时限制，通常 25–120s 一次）；
+3. 一次 `worker_result` 读取 + 结果判断；
 4. 中间的思考 token（拆步骤、判断边界、串行编排）。
 
 所以「改 1 个文件 = 1 个 dsh 任务」的粒度下，leader 的编排成本可能超过它省下的执行成本。
@@ -22,7 +22,7 @@
 
 ## 2. 粒度策略
 
-一个 `dsh_run` = 一个**可独立验收的工作单元**，默认覆盖：
+一个 `worker_run` = 一个**可独立验收的工作单元**，默认覆盖：
 
 ```
 定位 → 实现/修改 → 自测 → 证据汇总
@@ -35,13 +35,13 @@
 - 一次跨文件重构。
 
 **只允许三种拆分**：
-1. 彼此独立、可并行 → 一次 `dsh_batch_run` 发多个（不是串行小任务）；
+1. 彼此独立、可并行 → 一次 `worker_batch_run` 发多个（不是串行小任务）；
 2. 需要用户/leader 做决策（如方案选型、权限申请）；
 3. 风险隔离（先小范围验证，再扩大）。
 
 ---
 
-## 3. 任务模板（dsh_run 的 task 字段）
+## 3. 任务模板（worker_run 的 task 字段）
 
 ```text
 [目标] 一句话目标 + 为什么（验收依据）
@@ -77,21 +77,21 @@
 ## 4. 交互模式（leader 侧）
 
 ```
-dsh_run(task=模板, cwd=项目绝对路径)     # 只提交一次
-  → dsh_status(task_id, wait_s=60~120)   # 长轮询，等到终态
-  → dsh_result(task_id)                  # 取结果，审阅 diff / 测试证据 / 风险
+worker_run(task=模板, cwd=项目绝对路径)     # 只提交一次
+  → worker_status(task_id, wait_s=60~120)   # 长轮询，等到终态
+  → worker_result(task_id)                  # 取结果，审阅 diff / 测试证据 / 风险
 ```
 
-- **不要** 5–25 秒高频轮询；worker 单次长轮询上限 `DSH_MCP_STATUS_WAIT_MAX_S`（默认 120s）；
+- **不要** 5–25 秒高频轮询；worker 单次长轮询上限 `WORKER_STATUS_WAIT_MAX_S`（默认 120s）；
 - DSH 执行期间 leader 不要做同一件事（不要自己再读一遍代码「验证」）；
 - 同一工作单元需要返工 → 用原 `session_id` 续聊，不要新建孤立任务；
-- 并行：多个**独立**工作单元用 `dsh_batch_run` 一次发。
+- 并行：多个**独立**工作单元用 `worker_batch_run` 一次发。
 
 ---
 
 ## 5. leader 的验收动作（只做这些）
 
-1. 看 `dsh_result`：changed files / 测试命令与结果 / 风险点；
+1. 看 `worker_result`：changed files / 测试命令与结果 / 风险点；
 2. 抽查关键 diff（不要逐文件重读）；
 3. 决定：通过 / 一次返工（session 续聊）/ 回滚；
 4. 失败时把 `error` 原样反馈，不包装成完成。
@@ -122,14 +122,14 @@ Codex 桌面/CLI 自带 multi-agent（`spawn_agent` / `wait_agent` / `followup_t
 
 - 主线程把「需要多轮工具调用/改文件/跑测试」的工作交给子智能体 = 用贵的 leader 模型重复劳动，且永远用不上 DSH；
 - 本次核查记录：主线程确实调用了 dsh（3×run、25×status、1×result、2×cancel），而最新 15:52 的 rollout 是**子线程**，0 次 dsh 调用——看起来就像「没用 dsh、在用子智能体」；
-- 规则：**重活禁止交给原生子智能体**，由主线程 `dsh_run` 委派；子智能体只用于只读调研、单文件小改、与主线程并行且工具调用很少的活；子智能体发现需要重活时回报主线程。
+- 规则：**重活禁止交给原生子智能体**，由主线程 `worker_run` 委派；子智能体只用于只读调研、单文件小改、与主线程并行且工具调用很少的活；子智能体发现需要重活时回报主线程。
 
 ---
 
 ## 8. 落地位置
 
 - 全局规则：`~/AGENTS.md`（Claude Code 通过 `~/.claude/CLAUDE.md` 引用）与 `~/.codex/AGENTS.md`——已写入本策略；
-- worker 端：`dsh_run`/`dsh_status` 的工具描述与 server instructions 已内置「粗粒度 + 长轮询」指引；
+- worker 端：`worker_run`/`worker_status` 的工具描述与 server instructions 已内置「粗粒度 + 长轮询」指引；
 - 若某个 leader 不读全局规则（如 ChatGPT 桌面某些入口），把本手册第 2–4 节贴到该项目的 `AGENTS.md` 或自定义指令里。
 
 ---
@@ -156,18 +156,18 @@ Codex 桌面/CLI 自带 multi-agent（`spawn_agent` / `wait_agent` / `followup_t
 
 验收优先看事实，不看叙述：
 
-- `dsh_result.evidence.commands`：命令、退出码、原样标记（exit code / killed / timed out / sandbox denied）；
-- `dsh_result.evidence.git`：变更文件（`pre_existing` 标记任务前已脏）、diff 统计、`patch_path`；完整 diff 用 `dsh_read_result(source=diff)`；
-- `dsh_result.outcome`：`completed` / `needs_decision` / `failed` / `cancelled`（与 `status` 正交）。
+- `worker_result.evidence.commands`：命令、退出码、原样标记（exit code / killed / timed out / sandbox denied）；
+- `worker_result.evidence.git`：变更文件（`pre_existing` 标记任务前已脏）、diff 统计、`patch_path`；完整 diff 用 `worker_read_result(source=diff)`；
+- `worker_result.outcome`：`completed` / `needs_decision` / `failed` / `cancelled`（与 `status` 正交）。
 
 **v0.9.2 起失败/取消也带归因（不要再从 events 原文里猜）：**
 
-- `dsh_result.attempts`：逐次尝试摘要（`permission_mode`、`cwd`、`exit_code`、`acl_blocked`、`final_text_tail`）。首次尝试的 `[DSH:NEEDS_DECISION]` 等结论会保留，不会被后续 worktree/full 重试覆盖；
-- `dsh_result.sandbox_blocked` / `sandbox_blocked_detail`：本次是否撞到 ACL、原文片段；`failure_kind=sandbox_acl` 优先于 `cancelled`；
-- `dsh_result.worktree.path`：worktree 重试的实际执行目录（合入用）；`effective_permission_mode` 是最终权限；
-- `dsh_result.merge_hint`（v0.9.4）：worktree 改动合入原仓库的结构化指引（`base_commit`、`patch_path`、可直接执行的 `apply_command`、审阅提示）。worker **不会自动 apply**：先 `dsh_read_result(source=diff)` 审阅（patch 可能含 `.dsh-*` 探针文件与二进制占位），确认后再执行 `apply_command`；
-- `dsh_result.approval.retry_args`（v0.9.3）：客户端不支持 elicitation 或用户拒绝时给出结构化重提参数（`permission_mode=danger-full-access` + `cwd` + `timeout_s`），可直接作为下一次 `dsh_run` 的参数，不要自己猜。
+- `worker_result.attempts`：逐次尝试摘要（`permission_mode`、`cwd`、`exit_code`、`acl_blocked`、`final_text_tail`）。首次尝试的 `[DSH:NEEDS_DECISION]` 等结论会保留，不会被后续 worktree/full 重试覆盖；
+- `worker_result.sandbox_blocked` / `sandbox_blocked_detail`：本次是否撞到 ACL、原文片段；`failure_kind=sandbox_acl` 优先于 `cancelled`；
+- `worker_result.worktree.path`：worktree 重试的实际执行目录（合入用）；`effective_permission_mode` 是最终权限；
+- `worker_result.merge_hint`（v0.9.4）：worktree 改动合入原仓库的结构化指引（`base_commit`、`patch_path`、可直接执行的 `apply_command`、审阅提示）。worker **不会自动 apply**：先 `worker_read_result(source=diff)` 审阅（patch 可能含 `.dsh-*` 探针文件与二进制占位），确认后再执行 `apply_command`；
+- `worker_result.approval.retry_args`（v0.9.3）：客户端不支持 elicitation 或用户拒绝时给出结构化重提参数（`permission_mode=danger-full-access` + `cwd` + `timeout_s`），可直接作为下一次 `worker_run` 的参数，不要自己猜。
 
 `outcome=needs_decision` 时：用返回的 `decision_request` 回答，并带上原 `session_id` 续聊；不要把决策请求当失败，也不要猜。
 
-`dsh_status` 默认 `detail=summary`（只回状态/异常事件 + `last_text`）；排查过程时传 `detail=events`，或设 `DSH_MCP_STATUS_DETAIL=events` 回退旧行为。
+`worker_status` 默认 `detail=summary`（只回状态/异常事件 + `last_text`）；排查过程时传 `detail=events`，或设 `WORKER_STATUS_DETAIL=events` 回退旧行为。

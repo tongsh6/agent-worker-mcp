@@ -1,6 +1,10 @@
 import type { RunOutcome, TaskRecord } from '../src/types.js';
 import type { Store, TaskRunner, TaskRunInput } from '../src/task-manager.js';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { WorkerConfig } from '../src/config.js';
+
+let idemDirSeq = 0;
 
 export function makeRunOutcome(partial: Partial<RunOutcome> = {}): RunOutcome {
   const now = Date.now();
@@ -103,7 +107,7 @@ export class MemoryStore implements Store {
 
 export function makeTestConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
   return {
-    name: 'dsh-mcp-worker',
+    name: 'agent-worker-mcp',
     version: '0.1.0-test',
     profile: 'headless',
     dsh: { command: process.execPath, args: ['fake-dsh.js'], source: 'test' },
@@ -123,6 +127,7 @@ export function makeTestConfig(overrides: Partial<WorkerConfig> = {}): WorkerCon
     statusWaitMaxMs: 30_000,
     maxTaskTokens: 0,
     dshHome: 'test-dsh-home',
+    dataHome: 'test-data-home',
     tasksDir: 'test-tasks',
     defaultCwd: undefined,
     allowedCwds: [],
@@ -145,7 +150,7 @@ export function makeTestConfig(overrides: Partial<WorkerConfig> = {}): WorkerCon
     auditDir: 'test-audit',
     batchDir: 'test-batches',
     maxBatchTasks: 8,
-    otelServiceName: 'dsh-mcp-worker',
+    otelServiceName: 'agent-worker-mcp',
     maxResultChars: 1_000,
     maxStatusEvents: 50,
     maxStatusPayloadBytes: 16 * 1024,
@@ -159,7 +164,8 @@ export function makeTestConfig(overrides: Partial<WorkerConfig> = {}): WorkerCon
       usdCny: 6.65,
     },
     idemTtlMs: 24 * 60 * 60 * 1000,
-    idemDir: 'test-idem',
+    // 每个实例一个独立目录：测试文件并行运行时不再共享同一份幂等索引（否则同 key 会互相踩）
+    idemDir: join(tmpdir(), `awm-test-idem-${process.pid}-${++idemDirSeq}`),
     ...overrides,
   };
 }

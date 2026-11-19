@@ -159,7 +159,7 @@ const DECODING_PATCH: PatchSpec = {
  */
 export async function ensureDshPatch(dsh: DshEntry, spec: PatchSpec, mode: DshPatchMode): Promise<DshPatchResult> {
   if (mode === 'off') {
-    return { name: spec.name, status: 'unknown', mode, message: `已通过 DSH_MCP_DSH_PATCH=off 关闭 ${spec.label} 检查` };
+    return { name: spec.name, status: 'unknown', mode, message: `已通过 WORKER_DSH_PATCH=off 关闭 ${spec.label} 检查` };
   }
   const file = resolvePatchFile(dsh, spec.relativePath);
   if (!file || !existsSync(file)) {

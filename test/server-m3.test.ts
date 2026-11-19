@@ -53,7 +53,7 @@ function parsePayload(result: unknown): Record<string, unknown> {
 }
 
 async function runTask(client: Client, manager: TaskManager, task: string): Promise<string> {
-  const run = parsePayload(await client.callTool({ name: 'dsh_run', arguments: { task, cwd: process.cwd() } }));
+  const run = parsePayload(await client.callTool({ name: 'worker_run', arguments: { task, cwd: process.cwd() } }));
   const taskId = String(run.task_id);
   await waitFor(() => {
     const status = manager.get(taskId)?.status;
@@ -63,7 +63,7 @@ async function runTask(client: Client, manager: TaskManager, task: string): Prom
 }
 
 /**
- * 轮询 dsh_audit 直到指定条件满足。
+ * 轮询 worker_audit 直到指定条件满足。
  * TaskManager 的审计写入是 `void audit.append(...)` 异步落盘：任务进入终态时（runTask 已返回）
  * audit.jsonl 可能尚未写完，因此断言前必须等待目标事件出现，不能假定「终态可见⇒审计可读」。
  */
@@ -75,7 +75,7 @@ async function waitForAuditEvent(
   let entries: Array<Record<string, unknown>> = [];
   await waitFor(
     async () => {
-      const payload = parsePayload(await client.callTool({ name: 'dsh_audit', arguments: { limit: 20 } }));
+      const payload = parsePayload(await client.callTool({ name: 'worker_audit', arguments: { limit: 20 } }));
       entries = (payload.entries as Array<Record<string, unknown>> | undefined) ?? [];
       return matches(entries);
     },
@@ -86,20 +86,20 @@ async function waitForAuditEvent(
 }
 
 describe('M3 新增工具', () => {
-  it('dsh_tasks 返回任务摘要', async () => {
+  it('worker_tasks 返回任务摘要', async () => {
     const { client, manager } = await setup();
     const taskId = await runTask(client, manager, 'task-one');
-    const payload = parsePayload(await client.callTool({ name: 'dsh_tasks', arguments: { limit: 5 } }));
+    const payload = parsePayload(await client.callTool({ name: 'worker_tasks', arguments: { limit: 5 } }));
     expect(payload.count).toBe(1);
     const tasks = payload.tasks as Array<Record<string, unknown>>;
     expect(tasks[0]?.task_id).toBe(taskId);
     expect(tasks[0]?.status).toBe('succeeded');
 
-    const filtered = parsePayload(await client.callTool({ name: 'dsh_tasks', arguments: { status: 'failed' } }));
+    const filtered = parsePayload(await client.callTool({ name: 'worker_tasks', arguments: { status: 'failed' } }));
     expect(filtered.count).toBe(0);
   });
 
-  it('dsh_audit 返回审计事件', async () => {
+  it('worker_audit 返回审计事件', async () => {
     const { client, manager } = await setup();
     const taskId = await runTask(client, manager, 'audited-task');
     // 终态审计异步落盘：先等待 task_created（该 task_id）与 task_succeeded 都出现，再做原断言
@@ -112,19 +112,19 @@ describe('M3 新增工具', () => {
     expect(entries.some((entry) => entry.event === 'task_succeeded')).toBe(true);
   });
 
-  it('dsh_read_result 分页读取落盘产物', async () => {
+  it('worker_read_result 分页读取落盘产物', async () => {
     const longText = 'Z'.repeat(5_000);
     const { client, manager } = await setup({ finalText: longText, maxResultChars: 100 });
     const taskId = await runTask(client, manager, 'long-result');
 
-    const result = parsePayload(await client.callTool({ name: 'dsh_result', arguments: { task_id: taskId } }));
+    const result = parsePayload(await client.callTool({ name: 'worker_result', arguments: { task_id: taskId } }));
     expect((result.artifacts as unknown[]).length).toBe(1);
     const artifacts = result.artifacts as Array<{ path: string }>;
     expect(artifacts[0]?.path).toBeTruthy();
 
     const page = parsePayload(
       await client.callTool({
-        name: 'dsh_read_result',
+        name: 'worker_read_result',
         arguments: { task_id: taskId, source: 'result', max_chars: 1000 },
       }),
     );
@@ -134,7 +134,7 @@ describe('M3 新增工具', () => {
 
     const tail = parsePayload(
       await client.callTool({
-        name: 'dsh_read_result',
+        name: 'worker_read_result',
         arguments: { task_id: taskId, source: 'result', offset: page.next_offset, max_chars: 100_000 },
       }),
     );

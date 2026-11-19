@@ -48,7 +48,7 @@ describe('Streamable HTTP 传输', () => {
     const base = httpServer.url.replace(/\/mcp$/, '');
     const { status, body } = await fetchJson(`${base}/healthz`);
     expect(status).toBe(200);
-    expect(body).toMatchObject({ ok: true, name: 'dsh-mcp-worker' });
+    expect(body).toMatchObject({ ok: true, name: 'agent-worker-mcp' });
   });
 
   it('缺少/错误 token 返回 401', async () => {
@@ -71,23 +71,23 @@ describe('Streamable HTTP 传输', () => {
   it('带 token 的 MCP 客户端可以完成 run → status → result', async () => {
     const { client } = await setup();
     const { tools } = await client.listTools();
-    expect(tools.map((tool) => tool.name)).toContain('dsh_run');
+    expect(tools.map((tool) => tool.name)).toContain('worker_run');
 
     const run = parsePayload(
-      await client.callTool({ name: 'dsh_run', arguments: { task: 'over-http', cwd: process.cwd() } }),
+      await client.callTool({ name: 'worker_run', arguments: { task: 'over-http', cwd: process.cwd() } }),
     );
     const taskId = String(run.task_id);
     let status = parsePayload(
-      await client.callTool({ name: 'dsh_status', arguments: { task_id: taskId, wait_s: 5 } }),
+      await client.callTool({ name: 'worker_status', arguments: { task_id: taskId, wait_s: 5 } }),
     );
     const deadline = Date.now() + 10_000;
     while (!['succeeded', 'failed', 'cancelled'].includes(String(status.status)) && Date.now() < deadline) {
       status = parsePayload(
-        await client.callTool({ name: 'dsh_status', arguments: { task_id: taskId, wait_s: 5 } }),
+        await client.callTool({ name: 'worker_status', arguments: { task_id: taskId, wait_s: 5 } }),
       );
     }
     expect(status.status).toBe('succeeded');
-    const result = parsePayload(await client.callTool({ name: 'dsh_result', arguments: { task_id: taskId } }));
+    const result = parsePayload(await client.callTool({ name: 'worker_result', arguments: { task_id: taskId } }));
     expect(result.output).toBe('http-done');
   });
 
@@ -103,6 +103,6 @@ describe('Streamable HTTP 传输', () => {
 
   it('非回环地址无 token 时拒绝启动', () => {
     const config = makeTestConfig({ http: { host: '0.0.0.0', port: 0, token: '' } });
-    expect(() => validateHttpConfig(config)).toThrow(/DSH_MCP_HTTP_TOKEN/);
+    expect(() => validateHttpConfig(config)).toThrow(/WORKER_HTTP_TOKEN/);
   });
 });

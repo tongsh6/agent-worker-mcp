@@ -3,7 +3,7 @@ import { sliceUtf8 } from './event-summary.js';
 export const DECISION_MARKER = '[DSH:NEEDS_DECISION]';
 export const DECISION_REQUEST_MAX_BYTES = 4_096;
 
-/** 每次 dsh_run 追加的固定页脚（幂等：任务文本已包含则不再追加）。 */
+/** 每次 worker_run 追加的固定页脚（幂等：任务文本已包含则不再追加）。 */
 export const REPORT_PROTOCOL_FOOTER = [
   '---',
   '[汇报协议] 遇到任务文本中 [待你判断] 列出的分支、或任何需要业务取舍的决定时：停止执行，不要猜；最终回复以单独一行 `[DSH:NEEDS_DECISION]` 开头，其后逐条列出问题与可选方案。其余情况正常完成，不要输出该标记。',

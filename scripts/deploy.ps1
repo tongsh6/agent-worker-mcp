@@ -1,12 +1,12 @@
 ﻿# 将构建产物 + 生产依赖部署到独立运行目录，MCP 客户端只指向运行目录，不直接加载源码树。
 #
 # 用法：
-#   pwsh -File scripts/deploy.ps1 -Target D:\dsh-mcp-worker
-#   或先设 DSH_MCP_WORKER_HOME，然后 pwsh -File scripts/deploy.ps1
+#   pwsh -File scripts/deploy.ps1 -Target D:\agent-worker-mcp
+#   或先设 WORKER_WORKER_HOME，然后 pwsh -File scripts/deploy.ps1
 #
-# 之后 MCP 配置里的入口应为 <Target>\dist\index.js（例如 D:\dsh-mcp-worker\dist\index.js）。
+# 之后 MCP 配置里的入口应为 <Target>\dist\index.js（例如 D:\agent-worker-mcp\dist\index.js）。
 param(
-  [string]$Target = $(if ($env:DSH_MCP_WORKER_HOME) { $env:DSH_MCP_WORKER_HOME } else { Join-Path $env:LOCALAPPDATA 'dsh-mcp-worker' }),
+  [string]$Target = $(if ($env:WORKER_WORKER_HOME) { $env:WORKER_WORKER_HOME } else { Join-Path $env:LOCALAPPDATA 'agent-worker-mcp' }),
   [switch]$SkipBuild
 )
 

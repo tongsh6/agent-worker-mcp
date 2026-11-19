@@ -1,10 +1,10 @@
 {
-  "name": "dsh-mcp-worker",
-  "version": "0.11.1",
-  "description": "把本机 DSH（DeepSeek Harness）暴露为 MCP worker，供 Claude Code / Codex / ChatGPT 等 leader 调用",
+  "name": "agent-worker-mcp",
+  "version": "1.0.0",
+  "description": "把本机多个 coding agent（DSH / Kimi Code）统一暴露为 MCP worker，供 Claude Code / Codex / ChatGPT 等 leader 按任务切换执行体",
   "type": "module",
   "bin": {
-    "dsh-mcp-worker": "dist/index.js"
+    "agent-worker-mcp": "dist/index.js"
   },
   "engines": {
     "node": ">=20"
@@ -35,22 +35,25 @@
   "author": "tongsh6",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tongsh6/dsh-mcp-worker.git"
+    "url": "git+https://github.com/tongsh6/agent-worker-mcp.git"
   },
-  "homepage": "https://github.com/tongsh6/dsh-mcp-worker#readme",
+  "homepage": "https://github.com/tongsh6/agent-worker-mcp#readme",
   "bugs": {
-    "url": "https://github.com/tongsh6/dsh-mcp-worker/issues"
+    "url": "https://github.com/tongsh6/agent-worker-mcp/issues"
   },
   "keywords": [
     "mcp",
     "mcp-server",
-    "dsh",
-    "deepseek",
+    "worker",
+    "agent",
+    "multi-agent",
+    "delegation",
     "claude-code",
     "codex",
     "chatgpt",
-    "worker",
-    "delegation"
+    "dsh",
+    "deepseek",
+    "kimi"
   ],
   "files": [
     "dist"

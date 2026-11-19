@@ -79,7 +79,7 @@ describe('status 事件摘要与载荷上限', () => {
     cleanups.push(() => server.close());
 
     const runResult = await client.callTool({
-      name: 'dsh_run',
+      name: 'worker_run',
       arguments: { task: 'big-output', cwd: process.cwd(), wait_s: 10 },
     });
     const run = parsePayload(runResult);
@@ -121,7 +121,7 @@ describe('status 事件摘要与载荷上限', () => {
         JSON.stringify(rawEvents),
       )}B`,
     );
-    const statusTool = await client.callTool({ name: 'dsh_status', arguments: { task_id: taskId } });
+    const statusTool = await client.callTool({ name: 'worker_status', arguments: { task_id: taskId } });
     const statusToolStructuredBytes = utf8Bytes(JSON.stringify(statusTool.structuredContent));
     const statusToolTextBytes = utf8Bytes((statusTool.content[0] as { text: string }).text);
     console.log(
@@ -171,7 +171,7 @@ describe('status 事件摘要与载荷上限', () => {
 
     const read = parsePayload(
       await client.callTool({
-        name: 'dsh_read_result',
+        name: 'worker_read_result',
         arguments: { task_id: taskId, source: 'events', offset: 0, max_chars: 100_000 },
       }),
     );
@@ -251,7 +251,7 @@ describe('status 事件摘要与载荷上限', () => {
     cleanups.push(() => server.close());
 
     const runResult = await client.callTool({
-      name: 'dsh_run',
+      name: 'worker_run',
       arguments: { task: 'escape', cwd: process.cwd(), wait_s: 10 },
     });
     const run = parsePayload(runResult);
@@ -307,7 +307,7 @@ describe('status 事件摘要与载荷上限', () => {
     expect(raw.includes('小结果-19')).toBe(true);
   }, 60_000);
 
-  it('4096 预算下 dsh_run 的 created/hint 等元数据也计入整包', async () => {
+  it('4096 预算下 worker_run 的 created/hint 等元数据也计入整包', async () => {
     const budget = 4096;
     const config = makeTestConfig({ cleanupIntervalMs: 0, maxStatusPayloadBytes: budget });
     const huge = '汉'.repeat(100_000);
@@ -345,7 +345,7 @@ describe('status 事件摘要与载荷上限', () => {
 
     const run = parsePayload(
       await client.callTool({
-        name: 'dsh_run',
+        name: 'worker_run',
         arguments: { task: 'run-budget', cwd: process.cwd(), wait_s: 10 },
       }),
     );

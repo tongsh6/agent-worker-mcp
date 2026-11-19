@@ -64,11 +64,11 @@ function parsePayload(result: unknown): Record<string, unknown> {
 }
 
 describe('M4 新增工具', () => {
-  it('dsh_batch_run → dsh_batch_status → dsh_batch_result', async () => {
+  it('worker_batch_run → worker_batch_status → worker_batch_result', async () => {
     const { client, manager } = await setup({ finalText: 'batch-ok' });
     const run = parsePayload(
       await client.callTool({
-        name: 'dsh_batch_run',
+        name: 'worker_batch_run',
         arguments: {
           tasks: [
             { task: 'a', cwd: process.cwd() },
@@ -83,37 +83,37 @@ describe('M4 新增工具', () => {
 
     await waitFor(() => taskIds.every((id) => manager.get(id)?.status === 'succeeded'));
     const status = parsePayload(
-      await client.callTool({ name: 'dsh_batch_status', arguments: { batch_id: batchId, wait_s: 5 } }),
+      await client.callTool({ name: 'worker_batch_status', arguments: { batch_id: batchId, wait_s: 5 } }),
     );
     expect(status.status).toBe('completed');
     expect((status.counts as Record<string, number>).succeeded).toBe(2);
 
-    const result = parsePayload(await client.callTool({ name: 'dsh_batch_result', arguments: { batch_id: batchId } }));
+    const result = parsePayload(await client.callTool({ name: 'worker_batch_result', arguments: { batch_id: batchId } }));
     const items = result.results as Array<Record<string, unknown>>;
     expect(items.map((item) => item.output)).toEqual(['batch-ok', 'batch-ok']);
   });
 
-  it('dsh_search 命中任务输出', async () => {
+  it('worker_search 命中任务输出', async () => {
     const { client, manager } = await setup({ finalText: 'unique-needle-in-output' });
     const run = parsePayload(
-      await client.callTool({ name: 'dsh_run', arguments: { task: 'search me', cwd: process.cwd() } }),
+      await client.callTool({ name: 'worker_run', arguments: { task: 'search me', cwd: process.cwd() } }),
     );
     const taskId = String(run.task_id);
     await waitFor(() => manager.get(taskId)?.status === 'succeeded');
-    const payload = parsePayload(await client.callTool({ name: 'dsh_search', arguments: { query: 'unique-needle' } }));
+    const payload = parsePayload(await client.callTool({ name: 'worker_search', arguments: { query: 'unique-needle' } }));
     expect(payload.count).toBe(1);
     const matches = payload.matches as Array<Record<string, unknown>>;
     expect(matches[0]?.task_id).toBe(taskId);
     expect(String(matches[0]?.snippet)).toContain('unique-needle');
   });
 
-  it('dsh_metrics 返回计数/分位/运行时', async () => {
+  it('worker_metrics 返回计数/分位/运行时', async () => {
     const { client, manager } = await setup();
     const run = parsePayload(
-      await client.callTool({ name: 'dsh_run', arguments: { task: 'metrics', cwd: process.cwd() } }),
+      await client.callTool({ name: 'worker_run', arguments: { task: 'metrics', cwd: process.cwd() } }),
     );
     await waitFor(() => manager.get(String(run.task_id))?.status === 'succeeded');
-    const payload = parsePayload(await client.callTool({ name: 'dsh_metrics', arguments: {} }));
+    const payload = parsePayload(await client.callTool({ name: 'worker_metrics', arguments: {} }));
     const counts = payload.counts as Record<string, number>;
     expect(counts.succeeded).toBe(1);
     expect(payload.total).toBe(1);

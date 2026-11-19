@@ -52,7 +52,7 @@ export interface DshEntry {
   command: string;
   args: string[];
   shell?: boolean;
-  /** 该入口是怎么被确定的，写进 dsh_describe 方便排障。 */
+  /** 该入口是怎么被确定的，写进 worker_describe 方便排障。 */
   source: string;
 }
 
@@ -72,6 +72,8 @@ export interface WorkerConfig {
   profile: string;
   dsh: DshEntry;
   dshHome: string;
+  /** 本 worker 自己的数据根目录（tasks/audit/batches/idem 都在其下）。 */
+  dataHome: string;
   tasksDir: string;
   defaultCwd?: string;
   allowedCwds: string[];
@@ -100,7 +102,7 @@ export interface WorkerConfig {
   worktreeTtlMs: number;
   /** 任务完成通知 webhook（POST JSON）。 */
   notifyWebhook?: string;
-  /** 任务完成通知命令（带 DSH_MCP_NOTIFY_JSON 环境变量）。 */
+  /** 任务完成通知命令（带 WORKER_NOTIFY_JSON 环境变量）。 */
   notifyCmd?: string;
   /** 已结束任务保留时长（毫秒），超时自动清理。 */
   taskTtlMs: number;
@@ -122,19 +124,19 @@ export interface WorkerConfig {
   dshPatch: DshPatchMode;
   /** workspace-write 沙箱 ACL 授权失败时的降级策略：read-only | off。 */
   aclFallback: 'read-only' | 'danger-full-access' | 'off';
-  /** dsh_status 长轮询单次等待上限（毫秒）。 */
+  /** worker_status 长轮询单次等待上限（毫秒）。 */
   statusWaitMaxMs: number;
   /** 单任务 DSH token 预算（0 = 不限制）；超出后自动取消任务，防止失控烧额度。 */
   maxTaskTokens: number;
   maxResultChars: number;
   maxStatusEvents: number;
-  /** dsh_status 单次结构化载荷（JSON）的 UTF-8 字节上限。 */
+  /** worker_status 单次结构化载荷（JSON）的 UTF-8 字节上限。 */
   maxStatusPayloadBytes: number;
   /** 是否采集 git 证据（status/diff 摘要 + diff.patch）。 */
   evidenceGit: boolean;
-  /** 是否向 dsh_run 任务文本注入汇报协议页脚。 */
+  /** 是否向 worker_run 任务文本注入汇报协议页脚。 */
   reportProtocol: boolean;
-  /** dsh_status 默认 detail：summary（仅状态/异常）或 events（旧行为）。 */
+  /** worker_status 默认 detail：summary（仅状态/异常）或 events（旧行为）。 */
   statusDetail: 'summary' | 'events';
   /** DeepSeek 单价与人民币汇率（仅用于费用估算展示）。 */
   pricing: PricingConfig;
@@ -146,13 +148,15 @@ export interface WorkerConfig {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   const dshHome = resolve(env.DSH_HOME?.trim() || join(homedir(), '.dsh'));
-  const permissionMode = parsePermissionMode(env.DSH_MCP_PERMISSION_MODE);
-  // 允许列表两种写法：新配置 DSH_MCP_ALLOWED_CWDS（`;` 分隔）优先；
-  // 兼容本机在用版 bridge 的 DSH_MCP_ALLOWED_ROOTS（按平台分隔符，POSIX `:` / Windows `;`）。
-  const allowedCwdsRaw = env.DSH_MCP_ALLOWED_CWDS?.trim()
-    ? { raw: env.DSH_MCP_ALLOWED_CWDS, sep: ';' }
-    : env.DSH_MCP_ALLOWED_ROOTS?.trim()
-      ? { raw: env.DSH_MCP_ALLOWED_ROOTS, sep: delimiter }
+  // 本 worker 自己的数据根：不再寄生在 DSH 的 home 下（worker 现在是多执行体网关）
+  const dataHome = resolve(env.WORKER_HOME?.trim() || join(homedir(), '.agent-worker-mcp'));
+  const permissionMode = parsePermissionMode(env.WORKER_PERMISSION_MODE);
+  // 允许列表两种写法：新配置 WORKER_ALLOWED_CWDS（`;` 分隔）优先；
+  // 兼容本机在用版 bridge 的 WORKER_ALLOWED_ROOTS（按平台分隔符，POSIX `:` / Windows `;`）。
+  const allowedCwdsRaw = env.WORKER_ALLOWED_CWDS?.trim()
+    ? { raw: env.WORKER_ALLOWED_CWDS, sep: ';' }
+    : env.WORKER_ALLOWED_ROOTS?.trim()
+      ? { raw: env.WORKER_ALLOWED_ROOTS, sep: delimiter }
       : undefined;
   const allowedCwds = (allowedCwdsRaw?.raw ?? '')
     .split(allowedCwdsRaw?.sep ?? ';')
@@ -161,86 +165,87 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     .map((part) => resolve(part));
 
   return {
-    name: 'dsh-mcp-worker',
+    name: 'agent-worker-mcp',
     version: packageVersion,
-    backend: parseBackendKind(env.DSH_MCP_BACKEND),
-    transport: env.DSH_MCP_TRANSPORT?.trim() === 'http' ? 'http' : 'stdio',
+    backend: parseBackendKind(env.WORKER_BACKEND),
+    transport: env.WORKER_TRANSPORT?.trim() === 'http' ? 'http' : 'stdio',
     http: {
-      host: env.DSH_MCP_HTTP_HOST?.trim() || '127.0.0.1',
-      port: readInt(env, 'DSH_MCP_HTTP_PORT', 7391, 0, 65_535),
-      token: env.DSH_MCP_HTTP_TOKEN?.trim() || '',
+      host: env.WORKER_HTTP_HOST?.trim() || '127.0.0.1',
+      port: readInt(env, 'WORKER_HTTP_PORT', 7391, 0, 65_535),
+      token: env.WORKER_HTTP_TOKEN?.trim() || '',
     },
     sdk: {
-      profile: env.DSH_MCP_SDK_PROFILE?.trim() || 'sdk',
-      provider: env.DSH_MCP_SDK_PROVIDER?.trim() || 'deepseek-official',
-      model: env.DSH_MCP_SDK_MODEL?.trim() || 'deepseek-flash',
-      ...(env.DSH_MCP_SDK_REASONING_EFFORT?.trim()
-        ? { reasoningEffort: env.DSH_MCP_SDK_REASONING_EFFORT.trim() }
+      profile: env.WORKER_SDK_PROFILE?.trim() || 'sdk',
+      provider: env.WORKER_SDK_PROVIDER?.trim() || 'deepseek-official',
+      model: env.WORKER_SDK_MODEL?.trim() || 'deepseek-flash',
+      ...(env.WORKER_SDK_REASONING_EFFORT?.trim()
+        ? { reasoningEffort: env.WORKER_SDK_REASONING_EFFORT.trim() }
         : {}),
-      ...(readOptionalInt(env, 'DSH_MCP_SDK_MAX_TOKENS') !== undefined
-        ? { maxTokens: readOptionalInt(env, 'DSH_MCP_SDK_MAX_TOKENS') }
+      ...(readOptionalInt(env, 'WORKER_SDK_MAX_TOKENS') !== undefined
+        ? { maxTokens: readOptionalInt(env, 'WORKER_SDK_MAX_TOKENS') }
         : {}),
-      idleMs: readInt(env, 'DSH_MCP_SDK_IDLE_MIN', 10, 1, 240) * 60_000,
-      initTimeoutMs: readInt(env, 'DSH_MCP_SDK_INIT_TIMEOUT_S', 300, 10, 900) * 1_000,
+      idleMs: readInt(env, 'WORKER_SDK_IDLE_MIN', 10, 1, 240) * 60_000,
+      initTimeoutMs: readInt(env, 'WORKER_SDK_INIT_TIMEOUT_S', 300, 10, 900) * 1_000,
     },
     kimi: {
-      command: env.DSH_MCP_KIMI_COMMAND?.trim() || 'kimi',
-      args: env.DSH_MCP_KIMI_ARGS?.trim() ? env.DSH_MCP_KIMI_ARGS.trim().split(/\s+/) : ['acp'],
-      initTimeoutMs: readInt(env, 'DSH_MCP_KIMI_INIT_TIMEOUT_S', 60, 10, 900) * 1_000,
-      idleMs: readInt(env, 'DSH_MCP_KIMI_IDLE_MIN', 10, 1, 240) * 60_000,
+      command: env.WORKER_KIMI_COMMAND?.trim() || 'kimi',
+      args: env.WORKER_KIMI_ARGS?.trim() ? env.WORKER_KIMI_ARGS.trim().split(/\s+/) : ['acp'],
+      initTimeoutMs: readInt(env, 'WORKER_KIMI_INIT_TIMEOUT_S', 60, 10, 900) * 1_000,
+      idleMs: readInt(env, 'WORKER_KIMI_IDLE_MIN', 10, 1, 240) * 60_000,
     },
-    profile: env.DSH_MCP_PROFILE?.trim() || 'headless',
+    profile: env.WORKER_PROFILE?.trim() || 'headless',
     dsh: resolveDshEntry(env),
     dshHome,
-    tasksDir: resolve(env.DSH_MCP_TASKS_DIR?.trim() || join(dshHome, 'mcp-tasks')),
-    defaultCwd: env.DSH_MCP_DEFAULT_CWD?.trim() ? resolve(env.DSH_MCP_DEFAULT_CWD.trim()) : undefined,
+    dataHome,
+    tasksDir: resolve(env.WORKER_TASKS_DIR?.trim() || join(dataHome, 'tasks')),
+    defaultCwd: env.WORKER_DEFAULT_CWD?.trim() ? resolve(env.WORKER_DEFAULT_CWD.trim()) : undefined,
     allowedCwds,
     defaultPermissionMode: permissionMode,
     // 默认 1800s：本机在用版实测 900s 偏小（多个 900–1800s 任务被误杀）。
-    defaultTimeoutMs: readInt(env, 'DSH_MCP_TIMEOUT_S', 1_800, 5, 86_400) * 1000,
-    maxConcurrent: readInt(env, 'DSH_MCP_MAX_CONCURRENT', 2, 1, 8),
-    maxConcurrentPerCwd: readInt(env, 'DSH_MCP_MAX_CONCURRENT_PER_CWD', 1, 1, 8),
-    capabilityStore: readBool(env, 'DSH_MCP_CAPABILITY_CACHE', true),
-    capabilityTtlMs: readInt(env, 'DSH_MCP_CAPABILITY_TTL_H', 24, 1, 8_760) * 3_600_000,
-    retryTransient: readBool(env, 'DSH_MCP_RETRY_TRANSIENT', true),
-    autoWorktree: readBool(env, 'DSH_MCP_AUTO_WORKTREE', true),
-    worktreeRoot: resolve(env.DSH_MCP_WORKTREE_ROOT?.trim() || join(homedir(), 'dsh-worktrees')),
-    aclFailFast: readBool(env, 'DSH_MCP_ACL_FAIL_FAST', true),
-    allowFullAccessFallback: readBool(env, 'DSH_MCP_ALLOW_FULL_ACCESS_FALLBACK', true),
-    worktreeCleanup: readBool(env, 'DSH_MCP_WORKTREE_CLEANUP', true),
-    worktreeTtlMs: readInt(env, 'DSH_MCP_WORKTREE_TTL_MIN', 1_440, 1, 100_000) * 60_000,
-    ...(env.DSH_MCP_NOTIFY_WEBHOOK?.trim() ? { notifyWebhook: env.DSH_MCP_NOTIFY_WEBHOOK.trim() } : {}),
-    ...(env.DSH_MCP_NOTIFY_CMD?.trim() ? { notifyCmd: env.DSH_MCP_NOTIFY_CMD.trim() } : {}),
-    taskTtlMs: readInt(env, 'DSH_MCP_TASK_TTL_MIN', 1_440, 1, 100_000) * 60_000,
-    maxTasks: readInt(env, 'DSH_MCP_TASK_MAX', 500, 10, 100_000),
-    cleanupIntervalMs: readInt(env, 'DSH_MCP_CLEANUP_INTERVAL_MIN', 10, 1, 1_440) * 60_000,
-    auditDir: resolve(env.DSH_MCP_AUDIT_DIR?.trim() || join(dshHome, 'mcp-audit')),
-    batchDir: resolve(env.DSH_MCP_BATCH_DIR?.trim() || join(dshHome, 'mcp-batches')),
-    maxBatchTasks: readInt(env, 'DSH_MCP_BATCH_MAX', 8, 1, 32),
-    ...(env.DSH_MCP_OTEL_ENDPOINT?.trim() ? { otelEndpoint: env.DSH_MCP_OTEL_ENDPOINT.trim() } : {}),
-    otelServiceName: env.DSH_MCP_OTEL_SERVICE?.trim() || 'dsh-mcp-worker',
-    dshPatch: parseDshPatchMode(env.DSH_MCP_DSH_PATCH),
-    aclFallback: parseAclFallback(env.DSH_MCP_ACL_FALLBACK),
-    statusWaitMaxMs: readInt(env, 'DSH_MCP_STATUS_WAIT_MAX_S', 120, 5, 600) * 1_000,
-    maxTaskTokens: readInt(env, 'DSH_MCP_MAX_TASK_TOKENS', 0, 0, 1_000_000_000),
-    maxResultChars: readInt(env, 'DSH_MCP_MAX_RESULT_CHARS', 40_000, 1_000, 1_000_000),
-    maxStatusEvents: readInt(env, 'DSH_MCP_MAX_STATUS_EVENTS', 100, 1, 1_000),
-    maxStatusPayloadBytes: readInt(env, 'DSH_MCP_MAX_STATUS_PAYLOAD_BYTES', 16_384, 4_096, 1_000_000),
-    evidenceGit: readBool(env, 'DSH_MCP_EVIDENCE_GIT', true),
-    reportProtocol: readBool(env, 'DSH_MCP_REPORT_PROTOCOL', true),
-    statusDetail: parseStatusDetail(env.DSH_MCP_STATUS_DETAIL),
+    defaultTimeoutMs: readInt(env, 'WORKER_TIMEOUT_S', 1_800, 5, 86_400) * 1000,
+    maxConcurrent: readInt(env, 'WORKER_MAX_CONCURRENT', 2, 1, 8),
+    maxConcurrentPerCwd: readInt(env, 'WORKER_MAX_CONCURRENT_PER_CWD', 1, 1, 8),
+    capabilityStore: readBool(env, 'WORKER_CAPABILITY_CACHE', true),
+    capabilityTtlMs: readInt(env, 'WORKER_CAPABILITY_TTL_H', 24, 1, 8_760) * 3_600_000,
+    retryTransient: readBool(env, 'WORKER_RETRY_TRANSIENT', true),
+    autoWorktree: readBool(env, 'WORKER_AUTO_WORKTREE', true),
+    worktreeRoot: resolve(env.WORKER_WORKTREE_ROOT?.trim() || join(homedir(), 'dsh-worktrees')),
+    aclFailFast: readBool(env, 'WORKER_ACL_FAIL_FAST', true),
+    allowFullAccessFallback: readBool(env, 'WORKER_ALLOW_FULL_ACCESS_FALLBACK', true),
+    worktreeCleanup: readBool(env, 'WORKER_WORKTREE_CLEANUP', true),
+    worktreeTtlMs: readInt(env, 'WORKER_WORKTREE_TTL_MIN', 1_440, 1, 100_000) * 60_000,
+    ...(env.WORKER_NOTIFY_WEBHOOK?.trim() ? { notifyWebhook: env.WORKER_NOTIFY_WEBHOOK.trim() } : {}),
+    ...(env.WORKER_NOTIFY_CMD?.trim() ? { notifyCmd: env.WORKER_NOTIFY_CMD.trim() } : {}),
+    taskTtlMs: readInt(env, 'WORKER_TASK_TTL_MIN', 1_440, 1, 100_000) * 60_000,
+    maxTasks: readInt(env, 'WORKER_TASK_MAX', 500, 10, 100_000),
+    cleanupIntervalMs: readInt(env, 'WORKER_CLEANUP_INTERVAL_MIN', 10, 1, 1_440) * 60_000,
+    auditDir: resolve(env.WORKER_AUDIT_DIR?.trim() || join(dataHome, 'audit')),
+    batchDir: resolve(env.WORKER_BATCH_DIR?.trim() || join(dataHome, 'batches')),
+    maxBatchTasks: readInt(env, 'WORKER_BATCH_MAX', 8, 1, 32),
+    ...(env.WORKER_OTEL_ENDPOINT?.trim() ? { otelEndpoint: env.WORKER_OTEL_ENDPOINT.trim() } : {}),
+    otelServiceName: env.WORKER_OTEL_SERVICE?.trim() || 'agent-worker-mcp',
+    dshPatch: parseDshPatchMode(env.WORKER_DSH_PATCH),
+    aclFallback: parseAclFallback(env.WORKER_ACL_FALLBACK),
+    statusWaitMaxMs: readInt(env, 'WORKER_STATUS_WAIT_MAX_S', 120, 5, 600) * 1_000,
+    maxTaskTokens: readInt(env, 'WORKER_MAX_TASK_TOKENS', 0, 0, 1_000_000_000),
+    maxResultChars: readInt(env, 'WORKER_MAX_RESULT_CHARS', 40_000, 1_000, 1_000_000),
+    maxStatusEvents: readInt(env, 'WORKER_MAX_STATUS_EVENTS', 100, 1, 1_000),
+    maxStatusPayloadBytes: readInt(env, 'WORKER_MAX_STATUS_PAYLOAD_BYTES', 16_384, 4_096, 1_000_000),
+    evidenceGit: readBool(env, 'WORKER_EVIDENCE_GIT', true),
+    reportProtocol: readBool(env, 'WORKER_REPORT_PROTOCOL', true),
+    statusDetail: parseStatusDetail(env.WORKER_STATUS_DETAIL),
     pricing: {
-      inputPerMTok: readNumber(env, 'DSH_MCP_PRICE_INPUT_PER_MTOK', DEFAULT_PRICING.inputPerMTok),
-      cacheReadPerMTok: readNumber(env, 'DSH_MCP_PRICE_CACHE_READ_PER_MTOK', DEFAULT_PRICING.cacheReadPerMTok),
-      outputPerMTok: readNumber(env, 'DSH_MCP_PRICE_OUTPUT_PER_MTOK', DEFAULT_PRICING.outputPerMTok),
-      usdCny: readNumber(env, 'DSH_MCP_USD_CNY', DEFAULT_PRICING.usdCny),
+      inputPerMTok: readNumber(env, 'WORKER_PRICE_INPUT_PER_MTOK', DEFAULT_PRICING.inputPerMTok),
+      cacheReadPerMTok: readNumber(env, 'WORKER_PRICE_CACHE_READ_PER_MTOK', DEFAULT_PRICING.cacheReadPerMTok),
+      outputPerMTok: readNumber(env, 'WORKER_PRICE_OUTPUT_PER_MTOK', DEFAULT_PRICING.outputPerMTok),
+      usdCny: readNumber(env, 'WORKER_USD_CNY', DEFAULT_PRICING.usdCny),
     },
-    idemTtlMs: readInt(env, 'DSH_MCP_IDEM_TTL_H', 24, 0, 8_760) * 3_600_000,
-    idemDir: resolve(env.DSH_MCP_IDEM_DIR?.trim() || join(dshHome, 'mcp-idem')),
+    idemTtlMs: readInt(env, 'WORKER_IDEM_TTL_H', 24, 0, 8_760) * 3_600_000,
+    idemDir: resolve(env.WORKER_IDEM_DIR?.trim() || join(dataHome, 'idem')),
   };
 }
 
-/** DSH_MCP_BACKEND：sdk（默认）/ headless / kimi；未知值按 sdk 处理。 */
+/** WORKER_BACKEND：sdk（默认）/ headless / kimi；未知值按 sdk 处理。 */
 export function parseBackendKind(value: string | undefined): BackendKind {
   const normalized = value?.trim().toLowerCase();
   if (normalized === 'headless' || normalized === 'kimi') return normalized;
@@ -253,17 +258,17 @@ function parseStatusDetail(value: string | undefined): 'summary' | 'events' {
 
 /** 探测本机 DSH 入口；优先级：显式 CLI 路径 > 显式命令 > 已知安装路径 > PATH 上的 dsh。 */
 export function resolveDshEntry(env: NodeJS.ProcessEnv = process.env, exists: (path: string) => boolean = existsSync): DshEntry {
-  const cli = env.DSH_MCP_DSH_CLI?.trim();
+  const cli = env.WORKER_DSH_CLI?.trim();
   if (cli) {
-    return { command: process.execPath, args: [resolve(cli)], source: 'env:DSH_MCP_DSH_CLI' };
+    return { command: process.execPath, args: [resolve(cli)], source: 'env:WORKER_DSH_CLI' };
   }
-  const rawCommand = env.DSH_MCP_DSH_COMMAND?.trim();
+  const rawCommand = env.WORKER_DSH_COMMAND?.trim();
   if (rawCommand) {
-    return { command: rawCommand, args: [], shell: true, source: 'env:DSH_MCP_DSH_COMMAND' };
+    return { command: rawCommand, args: [], shell: true, source: 'env:WORKER_DSH_COMMAND' };
   }
 
   const candidates: string[] = [];
-  const dir = env.DSH_MCP_DSH_DIR?.trim();
+  const dir = env.WORKER_DSH_DIR?.trim();
   if (dir) candidates.push(join(resolve(dir), 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
   for (const candidate of candidates) {
     if (exists(candidate)) {

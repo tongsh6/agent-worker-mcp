@@ -70,19 +70,19 @@ describe('session id 回填与持久化', () => {
       args: ['--import', 'tsx', fileURLToPath(new URL('../src/index.ts', import.meta.url))],
       env: {
         ...process.env as Record<string, string>,
-        DSH_MCP_BACKEND: 'headless',
-        DSH_MCP_TRANSPORT: 'stdio',
-        DSH_MCP_DSH_CLI: fileURLToPath(new URL('./fixtures/fake-dsh.js', import.meta.url)),
-        DSH_MCP_DSH_PATCH: 'off',
-        DSH_MCP_DEFAULT_CWD: dir,
-        DSH_MCP_ALLOWED_CWDS: dir,
-        DSH_MCP_TASKS_DIR: join(dir, 'tasks'),
-        DSH_MCP_AUDIT_DIR: join(dir, 'audit'),
-        DSH_MCP_IDEM_DIR: join(dir, 'idem'),
-        DSH_MCP_CAPABILITY_CACHE: '0',
-        DSH_MCP_RETRY_TRANSIENT: '0',
-        DSH_MCP_EVIDENCE_GIT: '0',
-        DSH_MCP_REPORT_PROTOCOL: '0',
+        WORKER_BACKEND: 'headless',
+        WORKER_TRANSPORT: 'stdio',
+        WORKER_DSH_CLI: fileURLToPath(new URL('./fixtures/fake-dsh.js', import.meta.url)),
+        WORKER_DSH_PATCH: 'off',
+        WORKER_DEFAULT_CWD: dir,
+        WORKER_ALLOWED_CWDS: dir,
+        WORKER_TASKS_DIR: join(dir, 'tasks'),
+        WORKER_AUDIT_DIR: join(dir, 'audit'),
+        WORKER_IDEM_DIR: join(dir, 'idem'),
+        WORKER_CAPABILITY_CACHE: '0',
+        WORKER_RETRY_TRANSIENT: '0',
+        WORKER_EVIDENCE_GIT: '0',
+        WORKER_REPORT_PROTOCOL: '0',
         FAKE_DSH_STRICT_SESSION: '1',
       },
       stderr: 'pipe',
@@ -90,12 +90,12 @@ describe('session id 回填与持久化', () => {
 
     async function run(task: string, sessionId?: string) {
       const submitted = await client.callTool({
-        name: 'dsh_run',
+        name: 'worker_run',
         arguments: { task, cwd: dir, wait_s: 10, session_id: sessionId },
       });
       expect(submitted.isError).not.toBe(true);
       const result = await client.callTool({
-        name: 'dsh_result',
+        name: 'worker_result',
         arguments: { task_id: submitted.structuredContent?.task_id },
       });
       return result.structuredContent;

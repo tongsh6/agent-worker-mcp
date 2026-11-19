@@ -45,7 +45,7 @@ export interface UsageReport {
 }
 
 /**
- * 用量与成本聚合（对应本机在用版 `dsh_usage`）：
+ * 用量与成本聚合（对应本机在用版 `worker_usage`）：
  * 任务数 / 状态分布 / 耗时 / DSH token / 估算费用，并给出按 cwd 的 top 分布。
  * 数据源是 TaskManager 里的任务记录（含重启从磁盘恢复的任务）。
  */
@@ -131,7 +131,7 @@ export function buildUsageReport(tasks: TaskRecord[], options: UsageReportOption
   };
 }
 
-/** 便捷函数：直接给单个任务的 token 用量算费用（dsh_result / dsh_metrics 共用）。 */
+/** 便捷函数：直接给单个任务的 token 用量算费用（worker_result / worker_metrics 共用）。 */
 export function taskCost(tokens: TokenUsage | undefined, pricing: PricingConfig) {
   return estimateCost(tokens, pricing);
 }

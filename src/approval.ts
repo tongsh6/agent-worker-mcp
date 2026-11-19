@@ -13,7 +13,7 @@ const APPROVAL_PATTERNS: RegExp[] = [
 
 /**
  * 判断一个失败任务是否是「被审批卡住」而非真实执行错误。
- * 用于 dsh_result 里的审批桥：客户端支持 elicitation 时询问用户是否授权重试。
+ * 用于 worker_result 里的审批桥：客户端支持 elicitation 时询问用户是否授权重试。
  */
 export function detectApprovalRequired(record: TaskRecord): boolean {
   const texts: string[] = [];

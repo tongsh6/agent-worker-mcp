@@ -56,7 +56,7 @@ describe('沙箱 ACL 失败自动降级', () => {
     manager.stop();
   });
 
-  it('DSH_MCP_ACL_FALLBACK=off 时不降级，并给出可操作提示', async () => {
+  it('WORKER_ACL_FALLBACK=off 时不降级，并给出可操作提示', async () => {
     const modes: string[] = [];
     const config = makeTestConfig({ cleanupIntervalMs: 0, aclFallback: 'off' });
     const manager = new TaskManager({

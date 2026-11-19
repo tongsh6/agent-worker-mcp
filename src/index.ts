@@ -21,7 +21,7 @@ import { TaskManager, type TaskRunner } from './task-manager.js';
 
 const config = loadConfig(process.env);
 const log = (message: string): void => {
-  process.stderr.write(`[dsh-mcp-worker] ${message}\n`);
+  process.stderr.write(`[agent-worker-mcp] ${message}\n`);
 };
 
 // DSH 兼容检查：read-only 沙箱下 pwsh 编码前缀会报错、无控制台时中文输出按 GBK 写出；启动时自动检测/修复
@@ -63,7 +63,7 @@ const dshRunner: TaskRunner =
       })()
     : headlessRunner;
 
-// Kimi Code CLI 侧执行体：与 DSH 并存，按任务切换（dsh_run(backend)），不替换 DSH
+// Kimi Code CLI 侧执行体：与 DSH 并存，按任务切换（worker_run(backend)），不替换 DSH
 // 进程按 cwd 池化复用；空闲回收，取消超时的后端会被驱逐重建
 const kimiPool = new KimiBackendPool({
   command: config.kimi.command,
@@ -131,7 +131,7 @@ await manager.init();
 const batches = new BatchManager(manager, config.batchDir, config.maxBatchTasks);
 await batches.init();
 
-// 幂等键索引：跨重启保留 24h（DSH_MCP_IDEM_TTL_H），leader 重试不会重复派活。
+// 幂等键索引：跨重启保留 24h（WORKER_IDEM_TTL_H），leader 重试不会重复派活。
 const idem = new IdempotencyStore(config.idemDir, config.idemTtlMs);
 await idem.init();
 const prunedIdem = await idem.prune().catch(() => 0);
@@ -160,7 +160,7 @@ if (config.backend === 'sdk') {
     )}min）`,
   );
 } else if (config.backend === 'kimi') {
-  log(`默认后端=kimi（DSH 侧仍可用：dsh_run(backend="dsh")；池空闲回收=${Math.round(config.kimi.idleMs / 60_000)}min）`);
+  log(`默认后端=kimi（DSH 侧仍可用：worker_run(backend="dsh")；池空闲回收=${Math.round(config.kimi.idleMs / 60_000)}min）`);
 } else {
   log(`后端=headless（每任务一个进程，profile=${config.profile}）`);
 }

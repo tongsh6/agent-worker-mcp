@@ -30,7 +30,7 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 /** 非回环地址必须带 Bearer token，避免把 worker 裸奔到局域网。 */
 export function validateHttpConfig(config: WorkerConfig): void {
   if (!LOOPBACK_HOSTS.has(config.http.host.toLowerCase()) && config.http.token.length === 0) {
-    throw new Error(`拒绝在非回环地址 ${config.http.host} 上无鉴权启动：请设置 DSH_MCP_HTTP_TOKEN`);
+    throw new Error(`拒绝在非回环地址 ${config.http.host} 上无鉴权启动：请设置 WORKER_HTTP_TOKEN`);
   }
 }
 
@@ -38,7 +38,7 @@ export function validateHttpConfig(config: WorkerConfig): void {
  * Streamable HTTP 传输（无状态模式）：
  * - `POST /mcp` 处理 MCP JSON-RPC；
  * - `GET /healthz` 探活；
- * - `Authorization: Bearer <DSH_MCP_HTTP_TOKEN>` 鉴权（回环地址可空 token）。
+ * - `Authorization: Bearer <WORKER_HTTP_TOKEN>` 鉴权（回环地址可空 token）。
  * 每个请求创建独立的 McpServer + transport（无状态），任务状态由 TaskManager 共享。
  */
 export async function startHttpServer(deps: HttpServerDeps): Promise<RunningHttpServer> {
@@ -47,7 +47,7 @@ export async function startHttpServer(deps: HttpServerDeps): Promise<RunningHttp
   const httpServer = createServer((req, res) => {
     void handleRequest(deps, req, res).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`[dsh-mcp-worker] HTTP 请求处理失败：${message}\n`);
+      process.stderr.write(`[agent-worker-mcp] HTTP 请求处理失败：${message}\n`);
       if (!res.headersSent) {
         writeJsonRpc(res, 500, { code: -32603, message: `internal error: ${message}` });
         return;
@@ -100,7 +100,7 @@ async function handleRequest(deps: HttpServerDeps, req: IncomingMessage, res: Se
   }
 
   if (!isAuthorized(req, deps.config.http.token)) {
-    res.setHeader('WWW-Authenticate', 'Bearer realm="dsh-mcp-worker"');
+    res.setHeader('WWW-Authenticate', 'Bearer realm="agent-worker-mcp"');
     writeJsonRpc(res, 401, { code: -32001, message: 'unauthorized: 缺少或错误的 Bearer token' });
     return;
   }
