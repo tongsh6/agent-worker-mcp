@@ -86,7 +86,16 @@ export function createKimiRunner(options: KimiRunnerOptions): TaskRunner {
         }
 
         const result = await backend.prompt(sessionId, input.task, emit, input.timeoutMs);
-        const succeeded = result.reason === 'end_turn' || result.reason === 'completed';
+        // idle_after_tool：工具已执行完、会话因上游故障迟迟不返回，按已完成的工作收尾，不算失败
+        const succeeded =
+          result.reason === 'end_turn' || result.reason === 'completed' || result.reason === 'idle_after_tool';
+        if (result.reason === 'idle_after_tool') {
+          emit({
+            type: 'status',
+            phase: 'idle_after_tool',
+            note: '工具已完成，但模型侧长时间无响应；按已完成的工作收尾（结果可能缺最后一段叙述）',
+          });
+        }
         finish({
           exitCode: succeeded ? 0 : 1,
           finalText: result.text,

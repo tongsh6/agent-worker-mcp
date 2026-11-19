@@ -836,6 +836,8 @@ export const BACKEND_CAPABILITIES = {
     enforced_sandbox: true,
     acl_worktree_fallback: true,
     read_only_enforced: true,
+    /** read-only 下能否执行只读 shell：DSH 是文件系统级只读（能跑命令，不能写）。 */
+    read_only_shell: true,
   },
   kimi: {
     /** 已接 ACP session/load（会回放历史，恢复完整上下文）。 */
@@ -848,6 +850,8 @@ export const BACKEND_CAPABILITIES = {
     acl_worktree_fallback: false,
     // plan 模式不执行工具，只读语义成立；但它不是文件系统级隔离
     read_only_enforced: true,
+    /** Kimi 的 read-only 走 plan 模式：不执行 Shell（只做只读规划与读取），因此这里为 false。 */
+    read_only_shell: false,
   },
 } as const;
 

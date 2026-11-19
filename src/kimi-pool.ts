@@ -7,6 +7,8 @@ export interface KimiPoolOptions {
   initTimeoutMs: number;
   /** 空闲超过该时长回收进程。 */
   idleMs: number;
+  /** 工具完成后的空转看守（毫秒）；0 = 关闭。 */
+  idleAfterToolMs?: number;
   sweepIntervalMs?: number;
   now?: () => number;
   /** 测试注入点：默认真实拉起 `kimi acp`。 */
@@ -59,6 +61,7 @@ export class KimiBackendPool {
         ...(this.options.env ? { env: this.options.env } : {}),
         ...(permissionMode ? { permissionMode } : {}),
         initTimeoutMs: this.options.initTimeoutMs,
+        ...(this.options.idleAfterToolMs !== undefined ? { idleAfterToolMs: this.options.idleAfterToolMs } : {}),
       }),
     };
     this.entries.set(key, entry);
