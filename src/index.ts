@@ -70,6 +70,8 @@ const kimiPool = new KimiBackendPool({
   args: config.kimi.args,
   initTimeoutMs: config.kimi.initTimeoutMs,
   idleMs: config.kimi.idleMs,
+  idleAfterToolMs: config.kimi.idleAfterToolMs,
+  ...(config.kimi.model ? { model: config.kimi.model } : {}),
 });
 const kimiRunner: TaskRunner = createKimiRunner({ pool: kimiPool });
 

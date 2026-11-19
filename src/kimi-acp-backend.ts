@@ -96,6 +96,10 @@ function renderRawOutput(update: Record<string, unknown>): string {
   return '';
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
 function parseArguments(text: string): Record<string, unknown> {
   const trimmed = text.trim();
   if (trimmed.length === 0) return {};
@@ -112,6 +116,8 @@ interface ToolState {
   title?: string;
   /** in_progress 阶段的累积快照（实测是逐步变长的前缀，不是增量）。 */
   argsText: string;
+  /** 结构化参数：实测常出现在某条 `in_progress` 上，比 content 快照更可靠，优先使用。 */
+  rawInput?: Record<string, unknown>;
 }
 
 /**
@@ -144,7 +150,15 @@ export class KimiEventNormalizer {
       if (!callId) return;
       const title = typeof update.title === 'string' ? update.title : undefined;
       const tool = kimiToolName(update.kind);
-      this.tools.set(callId, { tool, ...(title ? { title } : {}), argsText: '' });
+      // 参数可能在初始事件里（content / rawInput），也可能完全不出现——先收下能收到的
+      const initialRaw = asRecord(update.rawInput);
+      const initialChunk = renderChunk(update);
+      this.tools.set(callId, {
+        tool,
+        ...(title ? { title } : {}),
+        argsText: initialChunk,
+        ...(Object.keys(initialRaw).length > 0 ? { rawInput: initialRaw } : {}),
+      });
       // 只报「开始」，参数与结果在终态一起给出（保证 evidence 拿到完整命令）
       this.emit({ type: 'status', phase: 'tool_start', tool, ...(title ? { title } : {}) });
       return;
@@ -197,6 +211,13 @@ export class KimiEventNormalizer {
     };
     this.tools.set(callId, existing);
 
+    // 后续 update 常带更具体的 title（如 "Running: git branch --show-current"），兜底时用它
+    if (typeof update.title === 'string' && update.title.length > 0) existing.title = update.title;
+
+    // 结构化参数可能出现在任意一条 update 上（实测 in_progress 阶段最常见），优先采集
+    const incomingRaw = asRecord(update.rawInput);
+    if (Object.keys(incomingRaw).length > 0) existing.rawInput = incomingRaw;
+
     if (status === 'in_progress' || status === 'pending') {
       const snapshot = renderChunk(update);
       if (snapshot.length > 0) {
@@ -212,7 +233,7 @@ export class KimiEventNormalizer {
       tool: existing.tool,
       call_id: callId,
       ...(existing.title ? { title: existing.title } : {}),
-      arguments: parseArguments(existing.argsText),
+      arguments: this.resolveArguments(existing),
     });
     this.emit({
       type: 'tool_result',
@@ -221,6 +242,19 @@ export class KimiEventNormalizer {
       message: { isError, content: output.length > 0 ? [{ type: 'text', text: output }] : [] },
     });
     this.tools.delete(callId);
+  }
+
+  /**
+   * 参数解析优先级：rawInput（结构化）> content 累积快照 > title 兜底。
+   * 最后一层是为了「参数彻底缺失时，证据里至少还有命令文本」，避免 evidence 静默为空。
+   */
+  private resolveArguments(state: ToolState): Record<string, unknown> {
+    if (state.rawInput && Object.keys(state.rawInput).length > 0) return state.rawInput;
+    const parsed = parseArguments(state.argsText);
+    if (Object.keys(parsed).length > 0) return parsed;
+    const running = state.title?.match(/^Running:\s*(.+)$/);
+    if (running && state.tool === 'shell') return { command: running[1] };
+    return {};
   }
 
   private appendText(chunk: string): void {
@@ -282,6 +316,8 @@ export interface KimiSpawnOptions {
   initTimeoutMs?: number;
   /** 工具完成后的空转看守（毫秒）；0 = 关闭。 */
   idleAfterToolMs?: number;
+  /** 会话级模型（ACP config option `model`）；缺省用 Kimi CLI 默认。 */
+  model?: string;
 }
 
 export interface KimiAcpBackendInit {
@@ -292,6 +328,8 @@ export interface KimiAcpBackendInit {
   diagnostics?: () => string;
   /** 工具完成后的空转看守（毫秒）；0 = 关闭。 */
   idleAfterToolMs?: number;
+  /** 会话级模型（ACP config option `model`）；缺省用 Kimi CLI 默认。 */
+  model?: string;
 }
 
 interface PendingPrompt {
@@ -329,11 +367,15 @@ export class KimiAcpBackend {
   /** 会话级权限策略：池化后同一进程可能承载不同权限模式的任务。 */
   private readonly sessionModes = new Map<string, string>();
   private readonly idleAfterToolMs: number;
+  private readonly modelOverride?: string;
+  /** 最近一次会话可用的模型（来自 ACP configOptions），用于配置出错时给出候选。 */
+  private lastAvailableModels: string[] = [];
   private replayDone: (() => void) | undefined;
 
   constructor(private readonly init: KimiAcpBackendInit) {
     this.pid = init.pid ?? null;
     this.idleAfterToolMs = init.idleAfterToolMs ?? DEFAULT_IDLE_AFTER_TOOL_MS;
+    this.modelOverride = init.model?.trim() ? init.model.trim() : undefined;
     init.client.onNotification('session/update', (params) => this.onUpdate(params));
     init.client.onRequest('session/request_permission', (params) => this.onPermission(params));
   }
@@ -360,6 +402,7 @@ export class KimiAcpBackend {
       onKill: () => child.kill(),
       diagnostics: () => stderrTail,
       ...(options.idleAfterToolMs !== undefined ? { idleAfterToolMs: options.idleAfterToolMs } : {}),
+      ...(options.model ? { model: options.model } : {}),
     });
     child.on('error', (error: Error) => backend.markClosed(error.message));
     child.on('exit', (code, signal) => {
@@ -406,6 +449,11 @@ export class KimiAcpBackend {
     return this.agentInfo;
   }
 
+  /** 最近一次会话可用的模型列表（来自 ACP configOptions）；未建过会话时为空。 */
+  get availableModels(): string[] {
+    return [...this.lastAvailableModels];
+  }
+
   get diagnostics(): string {
     return this.init.diagnostics?.() ?? '';
   }
@@ -417,15 +465,20 @@ export class KimiAcpBackend {
     for (const sessionId of [...this.pending.keys()]) this.settlePending(sessionId, { error: reason });
   }
 
-  /** 新建会话，并按权限模式切 mode（plan/auto/yolo）。 */
+  /** 新建会话：按权限模式切 mode（plan/auto/yolo），并按配置切模型。 */
   async newSession(cwd: string, permissionMode?: string): Promise<string> {
     this.assertOpen();
-    const result = await this.init.client.request<{ sessionId?: string }>('session/new', { cwd, mcpServers: [] }, 60_000);
+    const result = await this.init.client.request<{
+      sessionId?: string;
+      configOptions?: Array<{ id?: string; options?: Array<{ value?: string }> }>;
+    }>('session/new', { cwd, mcpServers: [] }, 60_000);
     if (!result?.sessionId) {
       throw new WorkerError('internal', `Kimi ACP session/new 未返回 sessionId：${JSON.stringify(result)}`);
     }
+    this.captureModels(result.configOptions);
     this.sessionModes.set(result.sessionId, permissionMode ?? this.init.permissionMode);
     await this.applyMode(result.sessionId, permissionMode);
+    await this.applyModel(result.sessionId);
     this.lastUsedAt = Date.now();
     return result.sessionId;
   }
@@ -440,6 +493,7 @@ export class KimiAcpBackend {
     await this.watchReplay();
     this.sessionModes.set(sessionId, permissionMode ?? this.init.permissionMode);
     await this.applyMode(sessionId, permissionMode);
+    await this.applyModel(sessionId);
     this.lastUsedAt = Date.now();
   }
 
@@ -549,6 +603,35 @@ export class KimiAcpBackend {
     await this.init.client.request('session/set_mode', { sessionId, modeId: mode }, 10_000).catch(() => {
       // 老版本可能没有 set_mode；切不过去不影响任务本身
     });
+  }
+
+  /**
+   * 会话级模型：配置了 WORKER_KIMI_MODEL 就切过去。
+   * 切不过去是**配置错误**，直接失败并把可用模型列出来——静默回落默认模型会让人以为生效了。
+   */
+  private async applyModel(sessionId: string): Promise<void> {
+    const model = this.modelOverride;
+    if (!model) return;
+    try {
+      const result = await this.init.client.request<{
+        configOptions?: Array<{ id?: string; options?: Array<{ value?: string }> }>;
+      }>('session/set_config_option', { sessionId, configId: 'model', value: model }, 15_000);
+      this.captureModels(result?.configOptions);
+    } catch (error) {
+      const available = this.lastAvailableModels.length > 0 ? this.lastAvailableModels.join(', ') : '(未能取得候选列表)';
+      throw new WorkerError(
+        'bad_request',
+        `Kimi 模型「${model}」不可用（WORKER_KIMI_MODEL）。可用：${available}。原始错误：${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private captureModels(configOptions?: Array<{ id?: string; options?: Array<{ value?: string }> }>): void {
+    const modelOption = configOptions?.find((option) => option.id === 'model');
+    const values = (modelOption?.options ?? [])
+      .map((option) => option.value)
+      .filter((value): value is string => typeof value === 'string' && value.length > 0);
+    if (values.length > 0) this.lastAvailableModels = values;
   }
 
   /** session/load 后的回放一般几十毫秒到一两秒；用「静默」判据，最多等 REPLAY_MAX_MS。 */

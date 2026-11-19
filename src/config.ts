@@ -50,6 +50,11 @@ export interface KimiRuntimeConfig {
    * 0 = 关闭看守。用于对抗上游模型服务 500/长重试把已完成的任务判成取消。
    */
   idleAfterToolMs: number;
+  /**
+   * 会话级模型（ACP config option `model`），例如 kimi-code/k3。
+   * 留空 = 用 Kimi CLI 自己的默认模型。配置了不存在的模型会在建会话时直接报错并列出可用项。
+   */
+  model?: string;
 }
 
 /** 如何拉起 DSH：`node <bin.js>` 最稳（绕开 Windows .cmd 的 spawn 问题）。 */
@@ -198,6 +203,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       initTimeoutMs: readInt(env, 'WORKER_KIMI_INIT_TIMEOUT_S', 60, 10, 900) * 1_000,
       idleMs: readInt(env, 'WORKER_KIMI_IDLE_MIN', 10, 1, 240) * 60_000,
       idleAfterToolMs: readInt(env, 'WORKER_KIMI_IDLE_AFTER_TOOL_S', 120, 0, 3_600) * 1_000,
+      ...(env.WORKER_KIMI_MODEL?.trim() ? { model: env.WORKER_KIMI_MODEL.trim() } : {}),
     },
     profile: env.WORKER_PROFILE?.trim() || 'headless',
     dsh: resolveDshEntry(env),

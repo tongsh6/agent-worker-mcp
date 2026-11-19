@@ -65,6 +65,38 @@ describe('KimiEventNormalizer（以 kimi 2.4.1 实测行为为准）', () => {
     ]);
   });
 
+  it('rawInput 出现在 update 里时优先使用（实测形态）', () => {
+    const events: RunEvent[] = [];
+    const normalizer = new KimiEventNormalizer((event) => events.push(event));
+    normalizer.push({ sessionUpdate: 'tool_call', toolCallId: 'tc-r', title: 'Bash', kind: 'execute', content: chunk('') });
+    normalizer.push({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'tc-r',
+      status: 'in_progress',
+      title: 'Running: echo hi',
+      rawInput: { command: 'echo hi' },
+      content: chunk('{"command":"echo hi"}'),
+    });
+    normalizer.push({ sessionUpdate: 'tool_call_update', toolCallId: 'tc-r', status: 'completed', content: chunk('hi\n') });
+    const call = events.find((event) => event.type === 'tool_call');
+    expect(call).toMatchObject({ tool: 'shell', arguments: { command: 'echo hi' } });
+  });
+
+  it('参数彻底缺失时用 title 兜底，证据不为空', () => {
+    const events: RunEvent[] = [];
+    const normalizer = new KimiEventNormalizer((event) => events.push(event));
+    normalizer.push({ sessionUpdate: 'tool_call', toolCallId: 'tc-t', title: 'Bash', kind: 'execute' });
+    normalizer.push({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'tc-t',
+      status: 'failed',
+      title: 'Running: git branch --show-current',
+      content: chunk('rejected'),
+    });
+    const call = events.find((event) => event.type === 'tool_call');
+    expect(call).toMatchObject({ arguments: { command: 'git branch --show-current' } });
+  });
+
   it('in_progress 是累积快照（实测形态）时也能解析参数', () => {
     const events: RunEvent[] = [];
     const normalizer = new KimiEventNormalizer((event) => events.push(event));
@@ -158,6 +190,59 @@ describe('KimiAcpBackend 多会话与恢复', () => {
     const modeRequest = sent.find((message) => message.method === 'session/set_mode');
     emit({ jsonrpc: '2.0', id: modeRequest?.id, result: {} });
     await loading;
+  });
+});
+
+describe('Kimi 会话级模型配置', () => {
+  async function bootSession(backend: KimiAcpBackend, sent: Array<Record<string, any>>, emit: (m: unknown) => void) {
+    const creating = backend.newSession('C:/p');
+    await waitFor(() => sent.some((m) => m.method === 'session/new'));
+    const newReq = sent.find((m) => m.method === 'session/new');
+    emit({
+      jsonrpc: '2.0',
+      id: newReq?.id,
+      result: {
+        sessionId: 's1',
+        configOptions: [{ id: 'model', options: [{ value: 'kimi-code/k3' }, { value: 'kimi-code/k3.1-pro' }] }],
+      },
+    });
+    await waitFor(() => sent.some((m) => m.method === 'session/set_mode'));
+    const modeReq = sent.find((m) => m.method === 'session/set_mode');
+    emit({ jsonrpc: '2.0', id: modeReq?.id, result: {} });
+    await waitFor(() => sent.some((m) => m.method === 'session/set_config_option'));
+    return { creating, cfgReq: sent.find((m) => m.method === 'session/set_config_option') };
+  }
+
+  it('配置了 model 时在建会话后切模型，并记录可用列表', async () => {
+    const { client, sent, emit } = makeAgent();
+    const backend = new KimiAcpBackend({ client, permissionMode: 'workspace-write', model: 'kimi-code/k3' });
+    const { creating, cfgReq } = await bootSession(backend, sent, emit);
+    expect(cfgReq?.params).toMatchObject({ sessionId: 's1', configId: 'model', value: 'kimi-code/k3' });
+    emit({ jsonrpc: '2.0', id: cfgReq?.id, result: { configOptions: [{ id: 'model', options: [{ value: 'kimi-code/k3' }] }] } });
+    await expect(creating).resolves.toBe('s1');
+    expect(backend.availableModels).toContain('kimi-code/k3');
+  });
+
+  it('模型不可用时直接失败，并把可用模型列出来', async () => {
+    const { client, sent, emit } = makeAgent();
+    const backend = new KimiAcpBackend({ client, permissionMode: 'workspace-write', model: 'nope-model' });
+    const { creating, cfgReq } = await bootSession(backend, sent, emit);
+    emit({ jsonrpc: '2.0', id: cfgReq?.id, error: { code: -32603, message: 'unknown model' } });
+    await expect(creating).rejects.toThrow(/kimi-code\/k3/);
+  });
+
+  it('未配置 model 时不会发 set_config_option', async () => {
+    const { client, sent, emit } = makeAgent();
+    const backend = new KimiAcpBackend({ client, permissionMode: 'workspace-write' });
+    const creating = backend.newSession('C:/p');
+    await waitFor(() => sent.some((m) => m.method === 'session/new'));
+    const newReq = sent.find((m) => m.method === 'session/new');
+    emit({ jsonrpc: '2.0', id: newReq?.id, result: { sessionId: 's1', configOptions: [] } });
+    await waitFor(() => sent.some((m) => m.method === 'session/set_mode'));
+    const modeReq = sent.find((m) => m.method === 'session/set_mode');
+    emit({ jsonrpc: '2.0', id: modeReq?.id, result: {} });
+    await expect(creating).resolves.toBe('s1');
+    expect(sent.some((m) => m.method === 'session/set_config_option')).toBe(false);
   });
 });
 
