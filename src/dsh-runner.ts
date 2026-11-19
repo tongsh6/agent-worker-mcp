@@ -14,14 +14,13 @@ export interface RunSpawn {
 export interface RunInput {
   task: string;
   cwd: string;
+  /** 已持久化的 DSH 会话 ID。省略时由 headless 创建新会话。 */
   sessionId?: string;
   permissionMode?: string;
   timeoutMs: number;
   profile: string;
   spawn: RunSpawn;
   env?: NodeJS.ProcessEnv;
-  /** 第几次尝试（1=首次；沙箱 ACL 降级重试为 2，用于生成新 session id）。 */
-  attempt?: number;
   onEvent?: (event: RunEvent) => void;
 }
 
@@ -60,9 +59,7 @@ export function startDshRun(input: RunInput): RunHandle {
     '--profile',
     input.profile,
     '--json',
-    ...(input.sessionId
-      ? ['--session-id', input.attempt && input.attempt > 1 ? `${input.sessionId}-r${input.attempt}` : input.sessionId]
-      : []),
+    ...(input.sessionId ? ['--session-id', input.sessionId] : []),
     input.task,
   ];
 

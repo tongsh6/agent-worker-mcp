@@ -8,6 +8,16 @@ const sessionId = sessionIdx >= 0 ? args[sessionIdx + 1] : 'sess-fake';
 
 const emit = (ev) => process.stdout.write(`${JSON.stringify(ev)}\n`);
 
+// 真实 headless 的 --session-id 只接受已经存在的会话。
+if (process.env.FAKE_DSH_STRICT_SESSION && sessionIdx >= 0 && sessionId !== 'sess-fake') {
+  emit({ type: 'error', message: `session "${sessionId}" does not exist; omit --session-id to start a new Session` });
+  process.exit(1);
+}
+if (process.env.FAKE_DSH_STRICT_SESSION && task === 'next' && sessionIdx < 0) {
+  emit({ type: 'error', message: '续聊必须指定已持久化的 session id' });
+  process.exit(1);
+}
+
 // 模拟 DSH 常驻的 Node 警告噪声，验证 runner 不会把 stderr 当成失败信号
 process.stderr.write('[fake-dsh] (node:1) [UNDICI-EHPA] Warning: noise\n');
 emit({ type: 'session', sessionId, cwd: process.cwd() });

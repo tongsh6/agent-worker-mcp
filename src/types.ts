@@ -125,6 +125,8 @@ export interface TaskRecord {
   /** cwd 所属 git 仓库根：per-repo 并发锁 key（非 git/解析失败时缺省，回退 cwd）。 */
   repoRoot?: string;
   sessionId?: string;
+  /** 调用方请求续聊；首次任务的预分配 ID 仅用于 worker 跟踪。 */
+  resumeRequested?: boolean;
   permissionMode: string;
   /** 用户请求的权限模式（auto 或显式）；用于区分 cwd 能力缓存与执行策略。 */
   requestedPermissionMode?: string;

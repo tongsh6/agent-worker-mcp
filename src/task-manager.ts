@@ -42,6 +42,8 @@ export interface TaskRunInput {
   task: string;
   cwd: string;
   sessionId?: string;
+  /** 仅在调用方请求续聊的首次尝试时提供，供 headless 恢复已存在的会话。 */
+  resumeSessionId?: string;
   permissionMode: string;
   timeoutMs: number;
   /** 第几次尝试（1=首次；沙箱 ACL 降级重试为 2，用于生成新 session id）。 */
@@ -196,6 +198,7 @@ export class TaskManager {
       cwd: input.cwd,
       // 首次 run 就确定一个可用 ID（与 runner 的默认 ID 生成一致）；SDK 实际 ID 变化时由事件回填。
       sessionId,
+      ...(input.sessionId ? { resumeRequested: true } : {}),
       requestedPermissionMode: requestedMode,
       permissionMode,
       timeoutMs: input.timeoutMs ?? config.defaultTimeoutMs,
@@ -934,6 +937,7 @@ export class TaskManager {
       task: record.task,
       cwd: record.cwd,
       sessionId: record.sessionId,
+      ...(attempt === 1 && record.resumeRequested && record.sessionId ? { resumeSessionId: record.sessionId } : {}),
       permissionMode,
       timeoutMs,
       attempt,

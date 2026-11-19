@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { TaskManager } from '../src/task-manager.js';
 import type { RunHandle, TaskRunner, TaskRunInput } from '../src/task-manager.js';
 import { JsonlTaskStore } from '../src/store.js';
@@ -57,6 +60,53 @@ function makeGatedSessionRunner(actualSessionId: string): { runner: TaskRunner; 
 }
 
 describe('session id 回填与持久化', () => {
+  it('headless 首次启动创建真实 session，后续用返回的 session id 续聊', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'headless-session-'));
+    cleanups.push(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+    const client = new Client({ name: 'headless-session-test', version: '1.0.0' });
+    cleanups.push(() => client.close());
+    await client.connect(new StdioClientTransport({
+      command: process.execPath,
+      args: ['--import', 'tsx', fileURLToPath(new URL('../src/index.ts', import.meta.url))],
+      env: {
+        ...process.env as Record<string, string>,
+        DSH_MCP_BACKEND: 'headless',
+        DSH_MCP_TRANSPORT: 'stdio',
+        DSH_MCP_DSH_CLI: fileURLToPath(new URL('./fixtures/fake-dsh.js', import.meta.url)),
+        DSH_MCP_DSH_PATCH: 'off',
+        DSH_MCP_DEFAULT_CWD: dir,
+        DSH_MCP_ALLOWED_CWDS: dir,
+        DSH_MCP_TASKS_DIR: join(dir, 'tasks'),
+        DSH_MCP_AUDIT_DIR: join(dir, 'audit'),
+        DSH_MCP_IDEM_DIR: join(dir, 'idem'),
+        DSH_MCP_CAPABILITY_CACHE: '0',
+        DSH_MCP_RETRY_TRANSIENT: '0',
+        DSH_MCP_EVIDENCE_GIT: '0',
+        DSH_MCP_REPORT_PROTOCOL: '0',
+        FAKE_DSH_STRICT_SESSION: '1',
+      },
+      stderr: 'pipe',
+    }));
+
+    async function run(task: string, sessionId?: string) {
+      const submitted = await client.callTool({
+        name: 'dsh_run',
+        arguments: { task, cwd: dir, wait_s: 10, session_id: sessionId },
+      });
+      expect(submitted.isError).not.toBe(true);
+      const result = await client.callTool({
+        name: 'dsh_result',
+        arguments: { task_id: submitted.structuredContent?.task_id },
+      });
+      return result.structuredContent;
+    }
+
+    const first = await run('first');
+    expect(first).toMatchObject({ status: 'succeeded', session_id: 'sess-fake', output: 'ok:first' });
+    const resumed = await run('next', String(first?.session_id));
+    expect(resumed).toMatchObject({ status: 'succeeded', session_id: 'sess-fake', output: 'ok:next' });
+  }, 30_000);
+
   it('首次 run 即返回非空 session_id，且 status/result/tasks 使用同一 ID', async () => {
     const runner: TaskRunner = (input: TaskRunInput): RunHandle => {
       const sessionId = input.sessionId ?? null;

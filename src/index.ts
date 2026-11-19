@@ -31,7 +31,7 @@ const headlessRunner: TaskRunner = (input) =>
   startDshRun({
     task: input.task,
     cwd: input.cwd,
-    sessionId: input.sessionId,
+    sessionId: input.resumeSessionId,
     permissionMode: input.permissionMode,
     timeoutMs: input.timeoutMs,
     profile: config.profile,
