@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { AuditLog } from './audit.js';
 import { BatchManager } from './batch-manager.js';
 import { loadConfig } from './config.js';
+import { ensureConfigTemplate } from './config-template.js';
 import { ensureDshCompatPatches } from './dsh-patch.js';
 import { startDshRun } from './dsh-runner.js';
 import { createFallbackRunner } from './fallback-runner.js';
@@ -19,6 +20,8 @@ import { createSdkRunner } from './sdk-runner.js';
 import { JsonlTaskStore } from './store.js';
 import { TaskManager, type TaskRunner } from './task-manager.js';
 
+// 首次启动生成配置模板（文件已存在则不动），让新用户打开就能看到全部可配置项
+const generatedConfig = ensureConfigTemplate();
 const config = loadConfig(process.env);
 const log = (message: string): void => {
   process.stderr.write(`[agent-worker-mcp] ${message}\n`);
@@ -156,6 +159,7 @@ if (config.transport === 'http') {
 }
 
 log(`已启动：dsh 入口=${config.dsh.source}`);
+if (generatedConfig) log(`已生成配置模板：${generatedConfig}（全部选项已注释列出）`);
 log(`配置来源=${config.configFile ?? '(未使用配置文件，全部走 env/默认)'}（优先级：env > 文件 > 默认）`);
 if (config.backend === 'sdk') {
   log(

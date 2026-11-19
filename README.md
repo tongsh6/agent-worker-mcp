@@ -366,6 +366,7 @@ pnpm measure:leader -- --since-hours 24
 | 自定义 | `WORKER_CONFIG=/path/to/config.toml` |
 | 优先级 | **环境变量 > 配置文件 > 内置默认**（env 用于临时覆盖/CI） |
 | 未知项 | 启动**直接失败**并列出，避免「配了没生效」这种无感错误 |
+| 首次启动 | 文件不存在时自动生成模板：**全部可配置项写全、逐项注释**，默认只启用最简单的几项 |
 
 ```toml
 # ~/.agent-worker-mcp/config.toml

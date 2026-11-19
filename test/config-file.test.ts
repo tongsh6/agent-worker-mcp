@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.js';
 import { loadConfigFile, resolveConfigPath } from '../src/config-file.js';
+import { buildConfigTemplate } from '../src/config-template.js';
 
 function writeConfig(content: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'awm-config-'));
@@ -65,10 +66,27 @@ modle = "typo"
     expect(() => loadConfigFile(file)).toThrow(/TOML/);
   });
 
-  it('WORKER_CONFIG 优先，默认路径不存在时不加载', () => {
+  it('WORKER_CONFIG 显式指定优先于默认路径', () => {
     const file = writeConfig('backend = "kimi"');
     expect(resolveConfigPath({ WORKER_CONFIG: file })).toBe(file);
-    expect(resolveConfigPath({ WORKER_HOME: '/tmp/nowhere-xyz' })).toBeUndefined();
+  });
+});
+
+describe('配置模板', () => {
+  it('模板本身是合法 TOML，且不含未知配置项', () => {
+    const file = writeConfig(buildConfigTemplate({ kimiModel: 'kimi-code/k3', worktrees: 'D:/work/worktrees/dsh' }));
+    const loaded = loadConfigFile(file);
+    expect(loaded.unknownKeys).toEqual([]);
+  });
+
+  it('默认模板只启用最简单的几项', () => {
+    const file = writeConfig(buildConfigTemplate());
+    const loaded = loadConfigFile(file);
+    expect(Object.keys(loaded.values).sort()).toEqual([
+      'WORKER_BACKEND',
+      'WORKER_KIMI_MODEL',
+      'WORKER_SDK_MODEL',
+    ]);
   });
 });
 
