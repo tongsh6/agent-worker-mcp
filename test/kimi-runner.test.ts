@@ -66,6 +66,29 @@ describe('KimiRunner', () => {
     expect(events.some((event) => event.type === 'status' && event.phase === 'session_resume_fallback')).toBe(true);
   });
 
+  it('idle_after_tool 判成功并显式标注（不把做完的事判成失败）', async () => {
+    const backend = {
+      isClosed: false,
+      isUnhealthy: false,
+      diagnostics: '',
+      async loadSession() {},
+      async newSession() {
+        return 'session-idle';
+      },
+      async prompt() {
+        return { text: 'partial', reason: 'idle_after_tool', timedOut: false, cancelled: false };
+      },
+      cancel() {},
+    };
+    const events: RunEvent[] = [];
+    const runner = createKimiRunner({ pool: sourceOf(backend) });
+    const outcome = await runner({ ...baseInput, onEvent: (event) => events.push(event) }).outcome;
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.errorMessage).toBeNull();
+    expect(outcome.cancelled).toBe(false);
+    expect(events.some((event) => event.type === 'status' && event.phase === 'idle_after_tool')).toBe(true);
+  });
+
   it('取消只作用于本会话（带 sessionId）', async () => {
     const calls: Array<[string, string?]> = [];
     let releasePrompt: ((value: unknown) => void) | undefined;

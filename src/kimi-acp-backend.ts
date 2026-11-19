@@ -13,6 +13,8 @@ const TEXT_FLUSH_MS = 700;
 /** session/load 会回放历史；等这段静默期结束，再发 prompt，避免历史正文混进本轮。 */
 const REPLAY_QUIET_MS = 800;
 const REPLAY_MAX_MS = 6_000;
+/** 工具完成后多久没有任何事件就主动收尾（默认 120s；可用 WORKER_KIMI_IDLE_AFTER_TOOL_S 覆盖，0 关闭）。 */
+const DEFAULT_IDLE_AFTER_TOOL_MS = 120_000;
 
 /** Kimi Code CLI 的会话 mode（实测 session/new 返回的 availableModes）。 */
 export type KimiMode = 'plan' | 'auto' | 'yolo' | 'default';
@@ -278,6 +280,8 @@ export interface KimiSpawnOptions {
   env?: NodeJS.ProcessEnv;
   permissionMode?: string;
   initTimeoutMs?: number;
+  /** 工具完成后的空转看守（毫秒）；0 = 关闭。 */
+  idleAfterToolMs?: number;
 }
 
 export interface KimiAcpBackendInit {
@@ -286,6 +290,8 @@ export interface KimiAcpBackendInit {
   pid?: number | null;
   onKill?: () => void;
   diagnostics?: () => string;
+  /** 工具完成后的空转看守（毫秒）；0 = 关闭。 */
+  idleAfterToolMs?: number;
 }
 
 interface PendingPrompt {
@@ -297,6 +303,14 @@ interface PendingPrompt {
   timedOut: boolean;
   cancelled: boolean;
   timer: NodeJS.Timeout | undefined;
+  /** 最后一次收到会话事件的时间：空转看守据此判断「工具做完后是否还有进展」。 */
+  lastEventAt: number;
+  /** 本轮是否已有工具执行完成（看守只在有工具结果后生效，避免误杀纯文本生成）。 */
+  hasToolResult: boolean;
+  /** 空转看守计时器。 */
+  idleTimer: NodeJS.Timeout | undefined;
+  /** 已由空转看守收尾（区别于用户取消）。 */
+  idleSettled: boolean;
   resolve: (outcome: PromptOutcome) => void;
 }
 
@@ -314,10 +328,12 @@ export class KimiAcpBackend {
   private readonly pending = new Map<string, PendingPrompt>();
   /** 会话级权限策略：池化后同一进程可能承载不同权限模式的任务。 */
   private readonly sessionModes = new Map<string, string>();
+  private readonly idleAfterToolMs: number;
   private replayDone: (() => void) | undefined;
 
   constructor(private readonly init: KimiAcpBackendInit) {
     this.pid = init.pid ?? null;
+    this.idleAfterToolMs = init.idleAfterToolMs ?? DEFAULT_IDLE_AFTER_TOOL_MS;
     init.client.onNotification('session/update', (params) => this.onUpdate(params));
     init.client.onRequest('session/request_permission', (params) => this.onPermission(params));
   }
@@ -343,6 +359,7 @@ export class KimiAcpBackend {
       pid: child.pid ?? null,
       onKill: () => child.kill(),
       diagnostics: () => stderrTail,
+      ...(options.idleAfterToolMs !== undefined ? { idleAfterToolMs: options.idleAfterToolMs } : {}),
     });
     child.on('error', (error: Error) => backend.markClosed(error.message));
     child.on('exit', (code, signal) => {
@@ -447,10 +464,15 @@ export class KimiAcpBackend {
         timedOut: false,
         cancelled: false,
         timer: undefined,
+        lastEventAt: Date.now(),
+        hasToolResult: false,
+        idleTimer: undefined,
+        idleSettled: false,
         resolve,
       };
       state.normalizer = new KimiEventNormalizer((event) => {
         if (event.type === 'text' && typeof event.text === 'string') state.assistantText += event.text;
+        if (event.type === 'tool_result') state.hasToolResult = true;
         onEvent(event);
       });
       state.timer = setTimeout(() => {
@@ -458,6 +480,11 @@ export class KimiAcpBackend {
         this.cancel(sessionId);
       }, Math.max(1_000, timeoutMs));
       this.pending.set(sessionId, state);
+      if (this.idleAfterToolMs > 0) {
+        const interval = Math.max(50, Math.min(15_000, Math.floor(this.idleAfterToolMs / 2)));
+        state.idleTimer = setInterval(() => this.checkIdle(sessionId), interval);
+        state.idleTimer.unref?.();
+      }
 
       onEvent({ type: 'status', phase: 'turn_start', turn: 1 });
       this.init.client
@@ -490,6 +517,20 @@ export class KimiAcpBackend {
       }, CANCEL_GRACE_MS);
       timer.unref?.();
     }
+  }
+
+  /**
+   * 空转看守：工具已经执行完成、但会话迟迟不返回（例如上游模型服务 500 后长时间重试）时，
+   * 主动取消并按「已完成的工作」收尾。否则整轮只能等到总超时，把做成的事判成取消。
+   */
+  private checkIdle(sessionId: string): void {
+    const state = this.pending.get(sessionId);
+    if (!state || state.idleSettled) return;
+    if (!state.hasToolResult) return;
+    if (Date.now() - state.lastEventAt < this.idleAfterToolMs) return;
+    state.idleSettled = true;
+    this.init.client.notify('session/cancel', { sessionId });
+    this.settlePending(sessionId, { reason: 'idle_after_tool' });
   }
 
   async close(): Promise<void> {
@@ -544,6 +585,7 @@ export class KimiAcpBackend {
     const state = payload?.sessionId ? this.pending.get(payload.sessionId) : undefined;
     if (!state) return;
     this.lastUsedAt = Date.now();
+    state.lastEventAt = Date.now();
     state.normalizer.push(update);
   }
 
@@ -573,6 +615,7 @@ export class KimiAcpBackend {
     if (!state) return;
     this.pending.delete(sessionId);
     clearTimeout(state.timer);
+    if (state.idleTimer) clearInterval(state.idleTimer);
     state.normalizer.close();
     const collected = state.assistantText;
     const reason = extra.reason ?? null;

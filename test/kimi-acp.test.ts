@@ -161,6 +161,37 @@ describe('KimiAcpBackend 多会话与恢复', () => {
   });
 });
 
+describe('KimiAcpBackend 空转看守', () => {
+  it('工具完成后再无事件时，以 idle_after_tool 收尾并发出 session/cancel', async () => {
+    const { client, sent, emit } = makeAgent();
+    const backend = new KimiAcpBackend({ client, permissionMode: 'workspace-write', idleAfterToolMs: 120 });
+    const events: RunEvent[] = [];
+    const pending = backend.prompt('s1', 'x', (event) => events.push(event), 30_000);
+    await waitFor(() => sent.some((message) => message.method === 'session/prompt'));
+    emit({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 's1', update: { sessionUpdate: 'tool_call', toolCallId: 't1', kind: 'execute', title: 'Bash' } } });
+    emit({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 's1', update: { sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed', content: chunk('feat/x') } } });
+
+    const outcome = await pending;
+    expect(outcome.reason).toBe('idle_after_tool');
+    expect(outcome.cancelled).toBe(false);
+    expect(outcome.timedOut).toBe(false);
+    expect(sent.some((message) => message.method === 'session/cancel')).toBe(true);
+    expect(events.some((event) => event.type === 'status' && event.reason === 'idle_after_tool')).toBe(true);
+  });
+
+  it('没有工具结果时看守不触发（纯文本生成不误杀）', async () => {
+    const { client, sent, emit } = makeAgent();
+    const backend = new KimiAcpBackend({ client, permissionMode: 'workspace-write', idleAfterToolMs: 100 });
+    const pending = backend.prompt('s2', 'x', () => undefined, 2_000);
+    await waitFor(() => sent.some((message) => message.method === 'session/prompt'));
+    const request = sent.find((message) => message.method === 'session/prompt');
+    emit({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 's2', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hi' } } } });
+    emit({ jsonrpc: '2.0', id: request?.id, result: { stopReason: 'end_turn' } });
+    const outcome = await pending;
+    expect(outcome.reason).toBe('end_turn');
+  });
+});
+
 describe('KimiAcpBackend 会话', () => {
   it('prompt 全流程：正文聚合 + stopReason 结束', async () => {
     const { client, sent, emit } = makeAgent();

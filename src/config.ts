@@ -45,6 +45,11 @@ export interface KimiRuntimeConfig {
   initTimeoutMs: number;
   /** 进程池空闲回收时长（毫秒）：超过且无活跃会话则关掉进程。 */
   idleMs: number;
+  /**
+   * 「工具已完成、但会话迟迟不返回」的空转看守（毫秒）：超时则主动收尾并按已完成的工作判成功。
+   * 0 = 关闭看守。用于对抗上游模型服务 500/长重试把已完成的任务判成取消。
+   */
+  idleAfterToolMs: number;
 }
 
 /** 如何拉起 DSH：`node <bin.js>` 最稳（绕开 Windows .cmd 的 spawn 问题）。 */
@@ -192,6 +197,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       args: env.WORKER_KIMI_ARGS?.trim() ? env.WORKER_KIMI_ARGS.trim().split(/\s+/) : ['acp'],
       initTimeoutMs: readInt(env, 'WORKER_KIMI_INIT_TIMEOUT_S', 60, 10, 900) * 1_000,
       idleMs: readInt(env, 'WORKER_KIMI_IDLE_MIN', 10, 1, 240) * 60_000,
+      idleAfterToolMs: readInt(env, 'WORKER_KIMI_IDLE_AFTER_TOOL_S', 120, 0, 3_600) * 1_000,
     },
     profile: env.WORKER_PROFILE?.trim() || 'headless',
     dsh: resolveDshEntry(env),
