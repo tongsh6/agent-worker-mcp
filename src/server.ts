@@ -417,7 +417,24 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
           backend_default: config.backend === 'kimi' ? 'kimi' : 'dsh',
           backends: ['dsh', 'kimi'],
           backend_capabilities: BACKEND_CAPABILITIES,
-          kimi: { command: config.kimi.command, args: config.kimi.args },
+          models: {
+            dsh: {
+              provider: config.sdk.provider,
+              model: config.sdk.model,
+              ...(config.sdk.reasoningEffort ? { reasoning_effort: config.sdk.reasoningEffort } : {}),
+              env: 'WORKER_SDK_MODEL',
+            },
+            kimi: {
+              model: config.kimi.model ?? null,
+              env: 'WORKER_KIMI_MODEL',
+              note: '会话级切换（ACP config option）；留空 = 用 Kimi CLI 自身默认模型',
+            },
+          },
+          kimi: {
+            command: config.kimi.command,
+            args: config.kimi.args,
+            idle_after_tool_s: Math.round(config.kimi.idleAfterToolMs / 1_000),
+          },
           ...(config.backend === 'sdk'
             ? {
                 sdk: {

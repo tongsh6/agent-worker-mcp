@@ -9,6 +9,8 @@ export interface KimiPoolOptions {
   idleMs: number;
   /** 工具完成后的空转看守（毫秒）；0 = 关闭。 */
   idleAfterToolMs?: number;
+  /** 会话级模型；缺省用 Kimi CLI 默认。 */
+  model?: string;
   sweepIntervalMs?: number;
   now?: () => number;
   /** 测试注入点：默认真实拉起 `kimi acp`。 */
@@ -62,6 +64,7 @@ export class KimiBackendPool {
         ...(permissionMode ? { permissionMode } : {}),
         initTimeoutMs: this.options.initTimeoutMs,
         ...(this.options.idleAfterToolMs !== undefined ? { idleAfterToolMs: this.options.idleAfterToolMs } : {}),
+        ...(this.options.model ? { model: this.options.model } : {}),
       }),
     };
     this.entries.set(key, entry);
