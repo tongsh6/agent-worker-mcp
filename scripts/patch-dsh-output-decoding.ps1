@@ -1,4 +1,4 @@
-# 修复 DSH 在 read-only 沙箱下「中文输出乱码」
+﻿# 修复 DSH 在 read-only 沙箱下「中文输出乱码」
 #
 # 背景：补丁 `patch-dsh-pwsh-encoding.ps1` 让 read-only（ConstrainedLanguage）跳过
 # UTF-8 前缀后，无控制台 spawn 的 pwsh 会按系统代码页（GBK/936）写 stdout/stderr，

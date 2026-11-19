@@ -1,4 +1,4 @@
-# 修复 DSH 在 read-only 沙箱下的 pwsh 编码噪音
+﻿# 修复 DSH 在 read-only 沙箱下的 pwsh 编码噪音
 #
 # 背景：DSH 的 dsh-pwsh-local 会给每条 pwsh 命令前缀一段编码固定脚本：
 #   [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); ...

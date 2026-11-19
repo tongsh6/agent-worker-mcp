@@ -1,4 +1,4 @@
-# 输出 pnpm 全局安装的 MCP 入口路径，供 Codex/ChatGPT/Claude 配置使用。
+﻿# 输出 pnpm 全局安装的 MCP 入口路径，供 Codex/ChatGPT/Claude 配置使用。
 #
 # 用法：
 #   pwsh -File scripts/mcp-entry.ps1
