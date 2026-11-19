@@ -1,6 +1,6 @@
 {
   "name": "agent-worker-mcp",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "把本机多个 coding agent（DSH / Kimi Code）统一暴露为 MCP worker，供 Claude Code / Codex / ChatGPT 等 leader 按任务切换执行体",
   "type": "module",
   "bin": {
