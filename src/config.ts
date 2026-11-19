@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { delimiter, join, resolve, sep } from 'node:path';
 import { WorkerError } from './errors.js';
 import type { DshPatchMode } from './dsh-patch.js';
+import { loadConfigFile, resolveConfigPath } from './config-file.js';
 import { DEFAULT_PRICING, type PricingConfig } from './pricing.js';
 
 const { version: packageVersion } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
@@ -74,6 +75,8 @@ export interface DshEntry {
 export interface WorkerConfig {
   name: string;
   version: string;
+  /** 实际加载的配置文件路径；完全走 env/默认值时缺省。 */
+  configFile?: string;
   /** 当前执行后端（headless / sdk）。 */
   backend: BackendKind;
   /** 长驻 SDK 后端配置。 */
@@ -162,16 +165,27 @@ export interface WorkerConfig {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
-  const dshHome = resolve(env.DSH_HOME?.trim() || join(homedir(), '.dsh'));
+  const configPath = resolveConfigPath(env);
+  const file = configPath ? loadConfigFile(configPath) : undefined;
+  if (file && file.unknownKeys.length > 0) {
+    throw new WorkerError(
+      'bad_request',
+      `配置文件 ${file.path} 含未知配置项：${file.unknownKeys.join(', ')}。请检查拼写；可用项见 worker_describe.config_schema`,
+    );
+  }
+  // 优先级：env（覆盖）> 配置文件 > 内置默认
+  const merged: NodeJS.ProcessEnv = { ...(file?.values ?? {}), ...env };
+
+  const dshHome = resolve(merged.DSH_HOME?.trim() || join(homedir(), '.dsh'));
   // 本 worker 自己的数据根：不再寄生在 DSH 的 home 下（worker 现在是多执行体网关）
-  const dataHome = resolve(env.WORKER_HOME?.trim() || join(homedir(), '.agent-worker-mcp'));
-  const permissionMode = parsePermissionMode(env.WORKER_PERMISSION_MODE);
+  const dataHome = resolve(merged.WORKER_HOME?.trim() || join(homedir(), '.agent-worker-mcp'));
+  const permissionMode = parsePermissionMode(merged.WORKER_PERMISSION_MODE);
   // 允许列表两种写法：新配置 WORKER_ALLOWED_CWDS（`;` 分隔）优先；
   // 兼容本机在用版 bridge 的 WORKER_ALLOWED_ROOTS（按平台分隔符，POSIX `:` / Windows `;`）。
-  const allowedCwdsRaw = env.WORKER_ALLOWED_CWDS?.trim()
-    ? { raw: env.WORKER_ALLOWED_CWDS, sep: ';' }
-    : env.WORKER_ALLOWED_ROOTS?.trim()
-      ? { raw: env.WORKER_ALLOWED_ROOTS, sep: delimiter }
+  const allowedCwdsRaw = merged.WORKER_ALLOWED_CWDS?.trim()
+    ? { raw: merged.WORKER_ALLOWED_CWDS, sep: ';' }
+    : merged.WORKER_ALLOWED_ROOTS?.trim()
+      ? { raw: merged.WORKER_ALLOWED_ROOTS, sep: delimiter }
       : undefined;
   const allowedCwds = (allowedCwdsRaw?.raw ?? '')
     .split(allowedCwdsRaw?.sep ?? ';')
@@ -182,19 +196,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   return {
     name: 'agent-worker-mcp',
     version: packageVersion,
-    backend: parseBackendKind(env.WORKER_BACKEND),
-    transport: env.WORKER_TRANSPORT?.trim() === 'http' ? 'http' : 'stdio',
+    ...(configPath ? { configFile: configPath } : {}),
+    backend: parseBackendKind(merged.WORKER_BACKEND),
+    transport: merged.WORKER_TRANSPORT?.trim() === 'http' ? 'http' : 'stdio',
     http: {
-      host: env.WORKER_HTTP_HOST?.trim() || '127.0.0.1',
+      host: merged.WORKER_HTTP_HOST?.trim() || '127.0.0.1',
       port: readInt(env, 'WORKER_HTTP_PORT', 7391, 0, 65_535),
-      token: env.WORKER_HTTP_TOKEN?.trim() || '',
+      token: merged.WORKER_HTTP_TOKEN?.trim() || '',
     },
     sdk: {
-      profile: env.WORKER_SDK_PROFILE?.trim() || 'sdk',
-      provider: env.WORKER_SDK_PROVIDER?.trim() || 'deepseek-official',
-      model: env.WORKER_SDK_MODEL?.trim() || 'deepseek-flash',
-      ...(env.WORKER_SDK_REASONING_EFFORT?.trim()
-        ? { reasoningEffort: env.WORKER_SDK_REASONING_EFFORT.trim() }
+      profile: merged.WORKER_SDK_PROFILE?.trim() || 'sdk',
+      provider: merged.WORKER_SDK_PROVIDER?.trim() || 'deepseek-official',
+      model: merged.WORKER_SDK_MODEL?.trim() || 'deepseek-flash',
+      ...(merged.WORKER_SDK_REASONING_EFFORT?.trim()
+        ? { reasoningEffort: merged.WORKER_SDK_REASONING_EFFORT.trim() }
         : {}),
       ...(readOptionalInt(env, 'WORKER_SDK_MAX_TOKENS') !== undefined
         ? { maxTokens: readOptionalInt(env, 'WORKER_SDK_MAX_TOKENS') }
@@ -203,20 +218,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       initTimeoutMs: readInt(env, 'WORKER_SDK_INIT_TIMEOUT_S', 300, 10, 900) * 1_000,
     },
     kimi: {
-      command: env.WORKER_KIMI_COMMAND?.trim() || 'kimi',
-      args: env.WORKER_KIMI_ARGS?.trim() ? env.WORKER_KIMI_ARGS.trim().split(/\s+/) : ['acp'],
+      command: merged.WORKER_KIMI_COMMAND?.trim() || 'kimi',
+      args: merged.WORKER_KIMI_ARGS?.trim() ? merged.WORKER_KIMI_ARGS.trim().split(/\s+/) : ['acp'],
       initTimeoutMs: readInt(env, 'WORKER_KIMI_INIT_TIMEOUT_S', 60, 10, 900) * 1_000,
       idleMs: readInt(env, 'WORKER_KIMI_IDLE_MIN', 10, 1, 240) * 60_000,
       idleAfterToolMs: readInt(env, 'WORKER_KIMI_IDLE_AFTER_TOOL_S', 120, 0, 3_600) * 1_000,
-      ...(env.WORKER_KIMI_MODEL?.trim() ? { model: env.WORKER_KIMI_MODEL.trim() } : {}),
-      ...(env.WORKER_KIMI_EFFORT?.trim() ? { effort: env.WORKER_KIMI_EFFORT.trim() } : {}),
+      ...(merged.WORKER_KIMI_MODEL?.trim() ? { model: merged.WORKER_KIMI_MODEL.trim() } : {}),
+      ...(merged.WORKER_KIMI_EFFORT?.trim() ? { effort: merged.WORKER_KIMI_EFFORT.trim() } : {}),
     },
-    profile: env.WORKER_PROFILE?.trim() || 'headless',
+    profile: merged.WORKER_PROFILE?.trim() || 'headless',
     dsh: resolveDshEntry(env),
     dshHome,
     dataHome,
-    tasksDir: resolve(env.WORKER_TASKS_DIR?.trim() || join(dataHome, 'tasks')),
-    defaultCwd: env.WORKER_DEFAULT_CWD?.trim() ? resolve(env.WORKER_DEFAULT_CWD.trim()) : undefined,
+    tasksDir: resolve(merged.WORKER_TASKS_DIR?.trim() || join(dataHome, 'tasks')),
+    defaultCwd: merged.WORKER_DEFAULT_CWD?.trim() ? resolve(merged.WORKER_DEFAULT_CWD.trim()) : undefined,
     allowedCwds,
     defaultPermissionMode: permissionMode,
     // 默认 1800s：本机在用版实测 900s 偏小（多个 900–1800s 任务被误杀）。
@@ -227,23 +242,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     capabilityTtlMs: readInt(env, 'WORKER_CAPABILITY_TTL_H', 24, 1, 8_760) * 3_600_000,
     retryTransient: readBool(env, 'WORKER_RETRY_TRANSIENT', true),
     autoWorktree: readBool(env, 'WORKER_AUTO_WORKTREE', true),
-    worktreeRoot: resolve(env.WORKER_WORKTREE_ROOT?.trim() || join(homedir(), 'dsh-worktrees')),
+    worktreeRoot: resolve(merged.WORKER_WORKTREE_ROOT?.trim() || join(homedir(), 'dsh-worktrees')),
     aclFailFast: readBool(env, 'WORKER_ACL_FAIL_FAST', true),
     allowFullAccessFallback: readBool(env, 'WORKER_ALLOW_FULL_ACCESS_FALLBACK', true),
     worktreeCleanup: readBool(env, 'WORKER_WORKTREE_CLEANUP', true),
     worktreeTtlMs: readInt(env, 'WORKER_WORKTREE_TTL_MIN', 1_440, 1, 100_000) * 60_000,
-    ...(env.WORKER_NOTIFY_WEBHOOK?.trim() ? { notifyWebhook: env.WORKER_NOTIFY_WEBHOOK.trim() } : {}),
-    ...(env.WORKER_NOTIFY_CMD?.trim() ? { notifyCmd: env.WORKER_NOTIFY_CMD.trim() } : {}),
+    ...(merged.WORKER_NOTIFY_WEBHOOK?.trim() ? { notifyWebhook: merged.WORKER_NOTIFY_WEBHOOK.trim() } : {}),
+    ...(merged.WORKER_NOTIFY_CMD?.trim() ? { notifyCmd: merged.WORKER_NOTIFY_CMD.trim() } : {}),
     taskTtlMs: readInt(env, 'WORKER_TASK_TTL_MIN', 1_440, 1, 100_000) * 60_000,
     maxTasks: readInt(env, 'WORKER_TASK_MAX', 500, 10, 100_000),
     cleanupIntervalMs: readInt(env, 'WORKER_CLEANUP_INTERVAL_MIN', 10, 1, 1_440) * 60_000,
-    auditDir: resolve(env.WORKER_AUDIT_DIR?.trim() || join(dataHome, 'audit')),
-    batchDir: resolve(env.WORKER_BATCH_DIR?.trim() || join(dataHome, 'batches')),
+    auditDir: resolve(merged.WORKER_AUDIT_DIR?.trim() || join(dataHome, 'audit')),
+    batchDir: resolve(merged.WORKER_BATCH_DIR?.trim() || join(dataHome, 'batches')),
     maxBatchTasks: readInt(env, 'WORKER_BATCH_MAX', 8, 1, 32),
-    ...(env.WORKER_OTEL_ENDPOINT?.trim() ? { otelEndpoint: env.WORKER_OTEL_ENDPOINT.trim() } : {}),
-    otelServiceName: env.WORKER_OTEL_SERVICE?.trim() || 'agent-worker-mcp',
-    dshPatch: parseDshPatchMode(env.WORKER_DSH_PATCH),
-    aclFallback: parseAclFallback(env.WORKER_ACL_FALLBACK),
+    ...(merged.WORKER_OTEL_ENDPOINT?.trim() ? { otelEndpoint: merged.WORKER_OTEL_ENDPOINT.trim() } : {}),
+    otelServiceName: merged.WORKER_OTEL_SERVICE?.trim() || 'agent-worker-mcp',
+    dshPatch: parseDshPatchMode(merged.WORKER_DSH_PATCH),
+    aclFallback: parseAclFallback(merged.WORKER_ACL_FALLBACK),
     statusWaitMaxMs: readInt(env, 'WORKER_STATUS_WAIT_MAX_S', 120, 5, 600) * 1_000,
     maxTaskTokens: readInt(env, 'WORKER_MAX_TASK_TOKENS', 0, 0, 1_000_000_000),
     maxResultChars: readInt(env, 'WORKER_MAX_RESULT_CHARS', 40_000, 1_000, 1_000_000),
@@ -251,7 +266,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     maxStatusPayloadBytes: readInt(env, 'WORKER_MAX_STATUS_PAYLOAD_BYTES', 16_384, 4_096, 1_000_000),
     evidenceGit: readBool(env, 'WORKER_EVIDENCE_GIT', true),
     reportProtocol: readBool(env, 'WORKER_REPORT_PROTOCOL', true),
-    statusDetail: parseStatusDetail(env.WORKER_STATUS_DETAIL),
+    statusDetail: parseStatusDetail(merged.WORKER_STATUS_DETAIL),
     pricing: {
       inputPerMTok: readNumber(env, 'WORKER_PRICE_INPUT_PER_MTOK', DEFAULT_PRICING.inputPerMTok),
       cacheReadPerMTok: readNumber(env, 'WORKER_PRICE_CACHE_READ_PER_MTOK', DEFAULT_PRICING.cacheReadPerMTok),
@@ -259,7 +274,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       usdCny: readNumber(env, 'WORKER_USD_CNY', DEFAULT_PRICING.usdCny),
     },
     idemTtlMs: readInt(env, 'WORKER_IDEM_TTL_H', 24, 0, 8_760) * 3_600_000,
-    idemDir: resolve(env.WORKER_IDEM_DIR?.trim() || join(dataHome, 'idem')),
+    idemDir: resolve(merged.WORKER_IDEM_DIR?.trim() || join(dataHome, 'idem')),
   };
 }
 

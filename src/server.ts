@@ -7,6 +7,9 @@ import { readTaskArtifact } from './artifacts.js';
 import type { AuditLog } from './audit.js';
 import type { BatchManager } from './batch-manager.js';
 import { PERMISSION_MODES, validateCwd, type WorkerConfig } from './config.js';
+import { configSchemaPaths } from './config-file.js';
+
+const CONFIG_SCHEMA_PATHS = configSchemaPaths();
 import { WorkerError } from './errors.js';
 import { EVENT_SUMMARY_MAX_BYTES, summarizeEvent, utf8ByteLength } from './event-summary.js';
 import { IdempotencyStore } from './idempotency.js';
@@ -414,6 +417,11 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
             home: config.dshHome,
           },
           backend: config.backend,
+          config: {
+            file: config.configFile ?? null,
+            precedence: ['env', 'file', 'defaults'],
+            schema_paths: CONFIG_SCHEMA_PATHS,
+          },
           backend_default: config.backend === 'kimi' ? 'kimi' : 'dsh',
           backends: ['dsh', 'kimi'],
           backend_capabilities: BACKEND_CAPABILITIES,

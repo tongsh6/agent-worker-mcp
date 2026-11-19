@@ -156,6 +156,7 @@ if (config.transport === 'http') {
 }
 
 log(`已启动：dsh 入口=${config.dsh.source}`);
+log(`配置来源=${config.configFile ?? '(未使用配置文件，全部走 env/默认)'}（优先级：env > 文件 > 默认）`);
 if (config.backend === 'sdk') {
   log(
     `后端=sdk 长驻（profile=${config.sdk.profile}，provider/model=${config.sdk.provider}/${config.sdk.model}，空闲回收=${Math.round(
