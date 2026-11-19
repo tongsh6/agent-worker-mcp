@@ -356,16 +356,50 @@ pnpm measure:leader -- --since-hours 24
 - 真实首测（单样本，任务：统计 src 下 ts 文件并列出最大 3 个）：**加速 2.29x、leader token 省 46.0%、cost 省 31.1%、达成率 2/2**；报告样例在 `measure-runs/report-*.md`。
 - leader token 来自 Claude Code `-p --output-format json` 的 `usage/cost`；Codex 用 `scripts/leader-usage.mjs` 从 rollout 聚合；ChatGPT web 无本地计量（见文档局限）。
 
-## 配置（环境变量）
+## 配置
+
+配置的主面是 **worker 自己的 TOML 文件**，不是 MCP 的 env：
+
+| 项 | 说明 |
+|---|---|
+| 默认路径 | `~/.agent-worker-mcp/config.toml`（存在才加载，不存在就全走默认） |
+| 自定义 | `WORKER_CONFIG=/path/to/config.toml` |
+| 优先级 | **环境变量 > 配置文件 > 内置默认**（env 用于临时覆盖/CI） |
+| 未知项 | 启动**直接失败**并列出，避免「配了没生效」这种无感错误 |
+
+```toml
+# ~/.agent-worker-mcp/config.toml
+backend = "dsh"                    # 默认执行体：dsh | kimi
+
+[backends.dsh]
+model = "deepseek-flash"
+reasoning_effort = "high"          # low | high | max
+
+[backends.kimi]
+model = "kimi-code/k3"
+effort = "low"                     # low | high | max；留空 = 模型默认
+
+[paths]
+worktrees = "D:/work/worktrees/dsh"
+
+[limits]
+max_concurrent = 2
+timeout_s = 1800
+
+[permissions]
+mode = "auto"                      # auto | read-only | workspace-write | danger-full-access
+```
+
+全部可配置路径见 `worker_describe` 返回的 `config.schema_paths`。
 
 ### 选执行体与模型
 
 两个后端的模型各自独立配置，互不影响：
 
-| 后端 | 变量 | 默认 | 绑定层 |
-|---|---|---|---|
-| DSH | `WORKER_SDK_MODEL` | `deepseek-flash` | **进程级**（换模型需重启后端） |
-| Kimi | `WORKER_KIMI_MODEL` | Kimi CLI 自身默认（`kimi-code/k3.1-pro`） | **会话级**（ACP config option，池化后零成本切换） |
+| 后端 | 配置文件 | 覆盖变量 | 默认 | 绑定层 |
+|---|---|---|---|---|
+| DSH | `[backends.dsh].model` | `WORKER_SDK_MODEL` | `deepseek-flash` | **进程级**（换模型需重启后端） |
+| Kimi | `[backends.kimi].model` | `WORKER_KIMI_MODEL` | Kimi CLI 自身默认（`kimi-code/k3.1-pro`） | **会话级**（ACP config option，池化后零成本切换） |
 
 Kimi 可选值：`kimi-code/k3.1-pro`（默认）、`kimi-code/k3.1-pro-highspeed`（**2x usage cost**）、`kimi-code/k3`、`kimi-code/k3-256k`、`kimi-code/kimi-for-coding`、`kimi-code/kimi-for-coding-highspeed`。
 思考档位：`low` / `high` / `max`（DSH 走 `WORKER_SDK_REASONING_EFFORT`，Kimi 走 `WORKER_KIMI_EFFORT`）。
@@ -380,7 +414,9 @@ Kimi 可选值：`kimi-code/k3.1-pro`（默认）、`kimi-code/k3.1-pro-highspee
 
 只开放**配置层**选择，不开放任务级裸模型名：DSH 的 model 是进程级，按任务选会让 cwd 进程池退化成 `cwd × model`；而且会让没有成本感知的 leader 决定账单。
 
-### 全部变量
+### 环境变量（覆盖层，可选）
+
+配置文件之外还支持环境变量，主要用于 CI / 临时覆盖 / 兼容旧配置；同名项以 env 为准。
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
