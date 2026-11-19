@@ -41,7 +41,7 @@ export class Notifier {
           windowsHide: true,
           detached: true,
           stdio: 'ignore',
-          env: { ...process.env, DSH_MCP_NOTIFY_JSON: JSON.stringify(payload) },
+          env: { ...process.env, WORKER_NOTIFY_JSON: JSON.stringify(payload) },
         });
         child.unref();
       } catch {

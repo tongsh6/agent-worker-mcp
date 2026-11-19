@@ -6,14 +6,14 @@ export type RunBackend = 'dsh' | 'kimi';
 export interface RouterRunnerOptions {
   dsh: TaskRunner;
   kimi: TaskRunner;
-  /** 未显式指定 backend 时用哪个（来自 DSH_MCP_BACKEND）。 */
+  /** 未显式指定 backend 时用哪个（来自 WORKER_BACKEND）。 */
   defaultKind: RunBackend;
 }
 
 export const RUN_BACKENDS: RunBackend[] = ['dsh', 'kimi'];
 
 /**
- * 按任务选择执行体：dsh_run(backend) > 全局默认。
+ * 按任务选择执行体：worker_run(backend) > 全局默认。
  * 「随时切换」的关键就在这一层——两个后端都常驻可用，不互相替换。
  */
 export function createRouterRunner(options: RouterRunnerOptions): TaskRunner {

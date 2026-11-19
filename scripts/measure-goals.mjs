@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 目标达成率测量：leader（Claude Code / Codex）通过 dsh-mcp-worker 后，
+ * 目标达成率测量：leader（Claude Code / Codex）通过 agent-worker-mcp 后，
  * 是否真的「更快 + 更省 leader token/额度」。
  *
  * 子命令：
@@ -198,7 +198,7 @@ async function commandAb(options) {
             type: 'stdio',
             command: process.execPath,
             args: [DSH_WORKER],
-            env: { DSH_MCP_DEFAULT_CWD: cwd },
+            env: { WORKER_DEFAULT_CWD: cwd },
           },
         },
       },
@@ -209,7 +209,7 @@ async function commandAb(options) {
 
   const baseTools = ['Read', 'Glob', 'Grep'];
   const delegationHint =
-    '\n\n【执行要求】请把主体工作交给 dsh worker：先用 mcp__dsh__dsh_run 提交任务，再用 mcp__dsh__dsh_status 轮询到结束，最后用 mcp__dsh__dsh_result 取结果；不要自己逐步执行。';
+    '\n\n【执行要求】请把主体工作交给 dsh worker：先用 mcp__dsh__worker_run 提交任务，再用 mcp__dsh__worker_status 轮询到结束，最后用 mcp__dsh__worker_result 取结果；不要自己逐步执行。';
 
   const rows = [];
   for (let run = 1; run <= runs; run += 1) {
@@ -222,7 +222,7 @@ async function commandAb(options) {
       prompt: `${task}${delegationHint}`,
       cwd,
       mcpConfig: dshConfig,
-      allowedTools: [...baseTools, 'mcp__dsh__dsh_run', 'mcp__dsh__dsh_status', 'mcp__dsh__dsh_result'],
+      allowedTools: [...baseTools, 'mcp__dsh__worker_run', 'mcp__dsh__worker_status', 'mcp__dsh__worker_result'],
       timeoutMs,
     });
     const delegatedEnd = Date.now();

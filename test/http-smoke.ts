@@ -1,6 +1,6 @@
 /**
  * 真实 HTTP 传输冒烟：
- *   启动 dist/index.js（DSH_MCP_TRANSPORT=http）→ 解析 stderr 里的 URL
+ *   启动 dist/index.js（WORKER_TRANSPORT=http）→ 解析 stderr 里的 URL
  *   → 校验 /healthz、401 鉴权 → MCP HTTP 客户端跑真实 DSH 任务。
  * 运行：pnpm smoke:http
  */
@@ -44,12 +44,12 @@ async function main(): Promise<void> {
   const child = spawn(process.execPath, [serverEntry], {
     env: {
       ...process.env,
-      DSH_MCP_TRANSPORT: 'http',
-      DSH_MCP_HTTP_HOST: '127.0.0.1',
-      DSH_MCP_HTTP_PORT: '0',
-      DSH_MCP_HTTP_TOKEN: TOKEN,
-      DSH_MCP_TASKS_DIR: join(sandbox, 'tasks'),
-      DSH_MCP_DEFAULT_CWD: projectDir,
+      WORKER_TRANSPORT: 'http',
+      WORKER_HTTP_HOST: '127.0.0.1',
+      WORKER_HTTP_PORT: '0',
+      WORKER_HTTP_TOKEN: TOKEN,
+      WORKER_TASKS_DIR: join(sandbox, 'tasks'),
+      WORKER_DEFAULT_CWD: projectDir,
     },
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -85,23 +85,23 @@ async function main(): Promise<void> {
     const started = Date.now();
     const run = parsePayload(
       await client.callTool({
-        name: 'dsh_run',
+        name: 'worker_run',
         arguments: { task: '用一句话回答：1+1 等于几？不要使用任何工具。', cwd: projectDir, timeout_s: 240 },
       }),
     );
     const taskId = String(run.task_id);
     log(`任务已受理：${taskId}`);
-    let status = parsePayload(await client.callTool({ name: 'dsh_status', arguments: { task_id: taskId, wait_s: 10 } }));
+    let status = parsePayload(await client.callTool({ name: 'worker_status', arguments: { task_id: taskId, wait_s: 10 } }));
     const deadline = Date.now() + 300_000;
     while (!['succeeded', 'failed', 'cancelled'].includes(String(status.status)) && Date.now() < deadline) {
       status = parsePayload(
         await client.callTool({
-          name: 'dsh_status',
+          name: 'worker_status',
           arguments: { task_id: taskId, cursor: status.next_cursor, wait_s: 10 },
         }),
       );
     }
-    const result = parsePayload(await client.callTool({ name: 'dsh_result', arguments: { task_id: taskId } }));
+    const result = parsePayload(await client.callTool({ name: 'worker_result', arguments: { task_id: taskId } }));
     log(`结果：${JSON.stringify({ status: result.status, output: result.output })}`);
     if (result.status !== 'succeeded' || typeof result.output !== 'string' || result.output.trim().length === 0) {
       throw new Error(`HTTP 任务未成功：${JSON.stringify(result)}`);

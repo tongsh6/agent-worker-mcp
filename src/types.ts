@@ -167,7 +167,7 @@ export interface TaskRecord {
   cancelRequested?: boolean;
   /** 创建该任务的 worker 进程 PID；多 worker 共享任务目录时用于判断任务是否仍被其他活进程执行。 */
   workerPid?: number;
-  /** 幂等键（dsh_run 传入时记录，便于追溯 leader 重试去重）。 */
+  /** 幂等键（worker_run 传入时记录，便于追溯 leader 重试去重）。 */
   idempotencyKey?: string;
   /** 任务开始前 git 工作树的脏文件基线（porcelain 行）。 */
   gitBaseline?: string[];
@@ -177,12 +177,12 @@ export interface TaskRecord {
   decisionRequest?: string;
   /** 是否已采集并落盘 evidence.json。 */
   evidenceCollected?: boolean;
-  /** 证据摘要统计（用于 dsh_metrics，避免每次读文件）。 */
+  /** 证据摘要统计（用于 worker_metrics，避免每次读文件）。 */
   evidenceStats?: { commands_failed: number; has_git: boolean };
   events: RunEvent[];
 }
 
-/** `dsh_status` 的返回结构。 */
+/** `worker_status` 的返回结构。 */
 export interface TaskStatusPayload {
   task_id: string;
   status: TaskStatus;
@@ -225,7 +225,7 @@ export interface TaskMergeHint {
   note: string;
 }
 
-/** `dsh_result` 的返回结构。 */
+/** `worker_result` 的返回结构。 */
 export interface TaskResultPayload {
   task_id: string;
   status: TaskStatus;
@@ -274,14 +274,14 @@ export interface TaskResultPayload {
     wall_ms: number | null;
     /** DSH 侧 token 用量；缺失表示后端事件未带 usage。 */
     tokens: TokenUsage | null;
-    /** 估算费用（美元，按 DSH_MCP_PRICE_* 单价）；tokens 缺失时为 null。 */
+    /** 估算费用（美元，按 WORKER_PRICE_* 单价）；tokens 缺失时为 null。 */
     cost_usd?: number | null;
-    /** 估算费用（人民币，按 DSH_MCP_USD_CNY 汇率）。 */
+    /** 估算费用（人民币，按 WORKER_USD_CNY 汇率）。 */
     cost_cny?: number | null;
   };
 }
 
-/** `dsh_tasks` 的列表项（任务摘要）。 */
+/** `worker_tasks` 的列表项（任务摘要）。 */
 export interface TaskSummary {
   task_id: string;
   status: TaskStatus;

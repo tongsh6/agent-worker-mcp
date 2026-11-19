@@ -60,12 +60,12 @@ export class OtelSpanExporter {
     })
       .then((response) => {
         if (!response.ok) {
-          process.stderr.write(`[dsh-mcp-worker] OTel 导出失败：HTTP ${response.status}\n`);
+          process.stderr.write(`[agent-worker-mcp] OTel 导出失败：HTTP ${response.status}\n`);
         }
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`[dsh-mcp-worker] OTel 导出失败：${message}\n`);
+        process.stderr.write(`[agent-worker-mcp] OTel 导出失败：${message}\n`);
       })
       .finally(() => clearTimeout(timer));
   }
@@ -96,7 +96,7 @@ export function buildPayload(record: TaskRecord, serviceName: string): OtlpTrace
         },
         scopeSpans: [
           {
-            scope: { name: 'dsh-mcp-worker' },
+            scope: { name: 'agent-worker-mcp' },
             spans: [
               {
                 traceId,

@@ -84,7 +84,7 @@ describe('KimiEventNormalizer（以 kimi 2.4.1 实测行为为准）', () => {
     expect(events[2]).toMatchObject({ type: 'tool_result', call_id: 'tc-2', message: { isError: true } });
   });
 
-  it('聚合后事件量远小于分片数（防 dsh_status 撑爆）', () => {
+  it('聚合后事件量远小于分片数（防 worker_status 撑爆）', () => {
     const events: RunEvent[] = [];
     const normalizer = new KimiEventNormalizer((event) => events.push(event));
     for (let i = 0; i < 200; i += 1) {

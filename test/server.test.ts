@@ -52,23 +52,23 @@ describe('MCP server（内存传输）', () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(
       [
-        'dsh_audit',
-        'dsh_batch_result',
-        'dsh_batch_run',
-        'dsh_batch_status',
-        'dsh_cancel',
-        'dsh_describe',
-        'dsh_metrics',
-        'dsh_read_result',
-        'dsh_result',
-        'dsh_run',
-        'dsh_search',
-        'dsh_status',
-        'dsh_tasks',
-        'dsh_usage',
+        'worker_audit',
+        'worker_batch_result',
+        'worker_batch_run',
+        'worker_batch_status',
+        'worker_cancel',
+        'worker_describe',
+        'worker_metrics',
+        'worker_read_result',
+        'worker_result',
+        'worker_run',
+        'worker_search',
+        'worker_status',
+        'worker_tasks',
+        'worker_usage',
       ].sort(),
     );
-    const runTool = tools.find((t) => t.name === 'dsh_run');
+    const runTool = tools.find((t) => t.name === 'worker_run');
     expect(runTool?.inputSchema.required).toContain('task');
     expect(Object.keys(runTool?.inputSchema.properties ?? {})).toContain('idempotency_key');
   });
@@ -76,56 +76,56 @@ describe('MCP server（内存传输）', () => {
   it('run → status → result 全链路', async () => {
     const { client } = await connectClient();
     const run = parsePayload(
-      await client.callTool({ name: 'dsh_run', arguments: { task: 'do work', cwd: process.cwd() } }),
+      await client.callTool({ name: 'worker_run', arguments: { task: 'do work', cwd: process.cwd() } }),
     );
     expect(typeof run.task_id).toBe('string');
     expect(['queued', 'running']).toContain(run.status);
 
     let status = parsePayload(
-      await client.callTool({ name: 'dsh_status', arguments: { task_id: run.task_id, wait_s: 5 } }),
+      await client.callTool({ name: 'worker_status', arguments: { task_id: run.task_id, wait_s: 5 } }),
     );
     const deadline = Date.now() + 10_000;
     while (!['succeeded', 'failed', 'cancelled'].includes(String(status.status)) && Date.now() < deadline) {
       status = parsePayload(
-        await client.callTool({ name: 'dsh_status', arguments: { task_id: run.task_id, wait_s: 5 } }),
+        await client.callTool({ name: 'worker_status', arguments: { task_id: run.task_id, wait_s: 5 } }),
       );
     }
     expect(status.status).toBe('succeeded');
 
-    const result = parsePayload(await client.callTool({ name: 'dsh_result', arguments: { task_id: run.task_id } }));
+    const result = parsePayload(await client.callTool({ name: 'worker_result', arguments: { task_id: run.task_id } }));
     expect(result.status).toBe('succeeded');
     expect(result.output).toBe('mcp-done');
   });
 
   it('未知任务返回结构化错误', async () => {
     const { client } = await connectClient();
-    const status = await client.callTool({ name: 'dsh_status', arguments: { task_id: 'nope' } });
+    const status = await client.callTool({ name: 'worker_status', arguments: { task_id: 'nope' } });
     expect(status.isError).toBe(true);
   });
 
-  it('dsh_describe 返回配置与能力信息', async () => {
+  it('worker_describe 返回配置与能力信息', async () => {
     const { client } = await connectClient();
-    const payload = parsePayload(await client.callTool({ name: 'dsh_describe', arguments: {} }));
-    expect(payload.name).toBe('dsh-mcp-worker');
+    const payload = parsePayload(await client.callTool({ name: 'worker_describe', arguments: {} }));
+    expect(payload.name).toBe('agent-worker-mcp');
     expect(payload.tools).toBeTruthy();
     expect(payload.limits).toBeTruthy();
     expect(payload.defaults).toMatchObject({ pricing: expect.any(Object) });
   });
 
-  it('MCP 握手与 dsh_describe 都报告 package.json 的版本', async () => {
+  it('MCP 握手与 worker_describe 都报告 package.json 的版本', async () => {
     const { client } = await connectClient({ config: { version: loadConfig({}).version } });
-    const payload = parsePayload(await client.callTool({ name: 'dsh_describe', arguments: {} }));
+    const payload = parsePayload(await client.callTool({ name: 'worker_describe', arguments: {} }));
 
     expect([client.getServerVersion()?.version, payload.version]).toEqual([packageVersion, packageVersion]);
   });
 
-  it('dsh_usage 聚合任务用量与费用口径', async () => {
+  it('worker_usage 聚合任务用量与费用口径', async () => {
     const { client } = await connectClient();
     const run = parsePayload(
-      await client.callTool({ name: 'dsh_run', arguments: { task: 'usage work', cwd: process.cwd(), wait_s: 5 } }),
+      await client.callTool({ name: 'worker_run', arguments: { task: 'usage work', cwd: process.cwd(), wait_s: 5 } }),
     );
     expect(run.task_id).toBeTruthy();
-    const report = parsePayload(await client.callTool({ name: 'dsh_usage', arguments: { days: 1 } }));
+    const report = parsePayload(await client.callTool({ name: 'worker_usage', arguments: { days: 1 } }));
     expect(report.window_days).toBe(1);
     expect(Number(report.jobs)).toBeGreaterThanOrEqual(1);
     expect(report.pricing).toMatchObject({ input_per_mtok: expect.any(Number), usd_cny: expect.any(Number) });
@@ -135,36 +135,36 @@ describe('MCP server（内存传输）', () => {
     expect(usage!.total_tokens).toBeGreaterThanOrEqual(1);
   });
 
-  it('dsh_metrics 返回估算费用汇总', async () => {
+  it('worker_metrics 返回估算费用汇总', async () => {
     const { client } = await connectClient();
-    await client.callTool({ name: 'dsh_run', arguments: { task: 'metrics work', cwd: process.cwd(), wait_s: 5 } });
-    const metrics = parsePayload(await client.callTool({ name: 'dsh_metrics', arguments: {} }));
+    await client.callTool({ name: 'worker_run', arguments: { task: 'metrics work', cwd: process.cwd(), wait_s: 5 } });
+    const metrics = parsePayload(await client.callTool({ name: 'worker_metrics', arguments: {} }));
     expect(metrics.tokens).toBeTruthy();
     expect(metrics.cost).toMatchObject({ usd: expect.any(Number), cny: expect.any(Number) });
   });
 
-  it('dsh_run 幂等键：重复提交复用同一 task', async () => {
+  it('worker_run 幂等键：重复提交复用同一 task', async () => {
     const idemDir = await tempDir('idem-server-');
     const { client } = await connectClient({ config: { idemDir } });
     const args = { task: 'idem work', cwd: process.cwd(), idempotency_key: 'same-key', wait_s: 5 };
-    const first = parsePayload(await client.callTool({ name: 'dsh_run', arguments: args }));
-    const second = parsePayload(await client.callTool({ name: 'dsh_run', arguments: args }));
+    const first = parsePayload(await client.callTool({ name: 'worker_run', arguments: args }));
+    const second = parsePayload(await client.callTool({ name: 'worker_run', arguments: args }));
     expect(String(second.task_id)).toBe(String(first.task_id));
     expect(second.idempotent_reuse).toBe(true);
     expect(first.idempotent_reuse).toBe(false);
   });
 
-  it('dsh_result 支持 offset/max_chars 分页续读', async () => {
+  it('worker_result 支持 offset/max_chars 分页续读', async () => {
     const longText = 'x'.repeat(2_500);
     const { client } = await connectClient({
       fake: makeFakeRunner({ delayMs: 5, finalText: longText }),
       config: { maxResultChars: 400 },
     });
     const run = parsePayload(
-      await client.callTool({ name: 'dsh_run', arguments: { task: 'long output', cwd: process.cwd(), wait_s: 5 } }),
+      await client.callTool({ name: 'worker_run', arguments: { task: 'long output', cwd: process.cwd(), wait_s: 5 } }),
     );
     const page1 = parsePayload(
-      await client.callTool({ name: 'dsh_result', arguments: { task_id: run.task_id, offset: 0, max_chars: 1_000 } }),
+      await client.callTool({ name: 'worker_result', arguments: { task_id: run.task_id, offset: 0, max_chars: 1_000 } }),
     );
     expect(String(page1.output)).toHaveLength(1_000);
     const pagination = page1.output_pagination as Record<string, unknown>;
@@ -174,7 +174,7 @@ describe('MCP server（内存传输）', () => {
 
     const page2 = parsePayload(
       await client.callTool({
-        name: 'dsh_result',
+        name: 'worker_result',
         arguments: { task_id: run.task_id, offset: pagination.next_offset, max_chars: 1_000 },
       }),
     );

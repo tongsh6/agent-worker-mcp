@@ -2,9 +2,9 @@
 #
 # 用法：
 #   pwsh -File scripts/mcp-entry.ps1
-#   pwsh -File scripts/mcp-entry.ps1 -Package dsh-mcp-worker
+#   pwsh -File scripts/mcp-entry.ps1 -Package agent-worker-mcp
 param(
-  [string]$Package = 'dsh-mcp-worker',
+  [string]$Package = 'agent-worker-mcp',
   [string]$PnpmHome = $env:PNPM_HOME
 )
 

@@ -404,7 +404,7 @@ export class TaskManager {
     const record = this.mustGet(taskId);
     await this.awaitFinalization(taskId);
     if (!isTerminalStatus(record.status)) {
-      throw new WorkerError('task_not_finished', `任务尚未结束（当前 ${record.status}），请先用 dsh_status 轮询`);
+      throw new WorkerError('task_not_finished', `任务尚未结束（当前 ${record.status}），请先用 worker_status 轮询`);
     }
     const evidence = await this.readEvidence(record.id);
     const cost = estimateCost(record.usageTokens, this.options.config.pricing);
@@ -644,7 +644,7 @@ export class TaskManager {
           outcome = await this.runAttempt(record, 'workspace-write', timeoutMs, attemptNo);
           continue;
         }
-        // 第二级：升级全权（可用 DSH_MCP_ALLOW_FULL_ACCESS_FALLBACK=0 关闭；read-only 降级不受该开关限制）
+        // 第二级：升级全权（可用 WORKER_ALLOW_FULL_ACCESS_FALLBACK=0 关闭；read-only 降级不受该开关限制）
         const fullAccessAllowed = fallbackTarget !== 'danger-full-access' || config.allowFullAccessFallback;
         if (fallbackTarget !== null && fullAccessAllowed) {
           record.sandboxFallback = { from: 'workspace-write', to: fallbackTarget, reason };
@@ -1180,7 +1180,7 @@ function buildMergeHint(record: TaskRecord, evidence: TaskEvidence | null): Task
     base_commit: record.worktree?.base_commit ?? null,
     patch_path: patchPath,
     apply_command: patchPath && repoDir ? `git -C "${repoDir}" apply --3way "${patchPath}"` : null,
-    note: 'worktree 改动不会自动合入原仓库；apply 前先用 dsh_read_result(source=diff) 审阅（patch 可能包含 .dsh-* 探针文件与二进制占位）。',
+    note: 'worktree 改动不会自动合入原仓库；apply 前先用 worker_read_result(source=diff) 审阅（patch 可能包含 .dsh-* 探针文件与二进制占位）。',
   };
 }
 
@@ -1229,15 +1229,15 @@ function classifyFailure(record: TaskRecord): string | null {
 
 const FAILURE_SUGGESTIONS: Record<string, string> = {
   sandbox_acl:
-    '该目录或 worktree 根 ACL 不允许 DSH 写沙箱（需要完全控制/WRITE_OWNER）。可执行：icacls "<cwd>" /grant "<用户>:(OI)(CI)F"（先确认合规）；或把 DSH_MCP_WORKTREE_ROOT 指到完全控制目录（如 %USERPROFILE%\\dsh-worktrees）；或显式传 permission_mode=danger-full-access / read-only。',
+    '该目录或 worktree 根 ACL 不允许 DSH 写沙箱（需要完全控制/WRITE_OWNER）。可执行：icacls "<cwd>" /grant "<用户>:(OI)(CI)F"（先确认合规）；或把 WORKER_WORKTREE_ROOT 指到完全控制目录（如 %USERPROFILE%\\dsh-worktrees）；或显式传 permission_mode=danger-full-access / read-only。',
   session_conflict: 'worker 已自动换新 session 恢复；如需完整历史请在 worker 存活期内续聊。',
   backend_init: 'DSH 后端初始化失败（已自动重试/降级）；若持续复现检查 DSH 安装与网络。',
   backend_crash: 'DSH 后端异常退出（已自动重试一次）；若持续复现检查内存/日志。',
   timeout: '任务超时：缩小范围或提高 timeout_s。',
-  token_budget: '超出 token 预算被终止：缩小任务范围或提高 DSH_MCP_MAX_TASK_TOKENS。',
+  token_budget: '超出 token 预算被终止：缩小任务范围或提高 WORKER_MAX_TASK_TOKENS。',
   approval: '任务被审批阻断：缩小操作范围或请用户显式授权。',
-  cancelled: '任务被取消：如非预期，检查 leader 侧 dsh_cancel 调用。',
-  task_error: '查看 dsh_result.error 与 dsh_read_result 的完整事件。',
+  cancelled: '任务被取消：如非预期，检查 leader 侧 worker_cancel 调用。',
+  task_error: '查看 worker_result.error 与 worker_read_result 的完整事件。',
 };
 
 /** B3：失败诊断摘要（停在哪一步、最后错误、建议动作）。 */
@@ -1262,7 +1262,7 @@ function buildDiagnosis(record: TaskRecord): { kind: string; stage: string; last
     kind,
     stage,
     last_error: lastError ?? (errorText || null),
-    suggestion: FAILURE_SUGGESTIONS[kind] ?? '查看 dsh_result.error 与 events 详情。',
+    suggestion: FAILURE_SUGGESTIONS[kind] ?? '查看 worker_result.error 与 events 详情。',
   };
 }
 

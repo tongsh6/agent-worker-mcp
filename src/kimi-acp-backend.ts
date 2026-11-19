@@ -7,7 +7,7 @@ import type { RunEvent } from './types.js';
 const STDERR_TAIL_CHARS = 8 * 1024;
 /** 取消后等待 agent 自行收尾的宽限；超时后只判定该会话失败，不杀进程（同一 cwd 可能还有别的会话）。 */
 const CANCEL_GRACE_MS = 8_000;
-/** 正文聚合：Kimi 按 token 逐片推送，逐片发事件会把 dsh_status 撑爆。 */
+/** 正文聚合：Kimi 按 token 逐片推送，逐片发事件会把 worker_status 撑爆。 */
 const TEXT_FLUSH_CHARS = 320;
 const TEXT_FLUSH_MS = 700;
 /** session/load 会回放历史；等这段静默期结束，再发 prompt，避免历史正文混进本轮。 */

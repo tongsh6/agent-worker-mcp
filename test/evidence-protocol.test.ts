@@ -35,7 +35,7 @@ const toolEvents: RunEvent[] = [
 ];
 
 describe('结构化证据 + 决策协议（TaskManager 集成）', () => {
-  it('dsh_result.evidence 提取命令退出码/编辑；outcome=completed', async () => {
+  it('worker_result.evidence 提取命令退出码/编辑；outcome=completed', async () => {
     const manager = new TaskManager({
       runner: makeEventRunner('完成', toolEvents),
       store: new MemoryStore(),
@@ -86,7 +86,7 @@ describe('结构化证据 + 决策协议（TaskManager 集成）', () => {
     manager.stop();
   });
 
-  it('dsh_status 默认 summary 不回 tool 事件，detail=events 恢复', async () => {
+  it('worker_status 默认 summary 不回 tool 事件，detail=events 恢复', async () => {
     const manager = new TaskManager({
       runner: makeEventRunner('完成', toolEvents),
       store: new MemoryStore(),

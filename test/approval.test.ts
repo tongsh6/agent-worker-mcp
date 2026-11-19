@@ -124,16 +124,16 @@ describe('detectApprovalRequired', () => {
   });
 });
 
-describe('审批桥（dsh_result）', () => {
+describe('审批桥（worker_result）', () => {
   it('客户端支持 elicitation：授权后用 danger-full-access 重试', async () => {
     const { client, manager, fake, elicitations } = await setup({ elicitation: true });
     const run = parsePayload(
-      await client.callTool({ name: 'dsh_run', arguments: { task: '需要审批的任务', cwd: process.cwd() } }),
+      await client.callTool({ name: 'worker_run', arguments: { task: '需要审批的任务', cwd: process.cwd() } }),
     );
     const taskId = String(run.task_id);
     await waitTerminal(manager, taskId);
 
-    const first = parsePayload(await client.callTool({ name: 'dsh_result', arguments: { task_id: taskId } }));
+    const first = parsePayload(await client.callTool({ name: 'worker_result', arguments: { task_id: taskId } }));
     expect(first.status).toBe('failed');
     expect(first.approval).toMatchObject({ required: true, status: 'approved' });
     expect(elicitations).toHaveLength(1);
@@ -141,7 +141,7 @@ describe('审批桥（dsh_result）', () => {
     expect(retriedTaskId).toBeTruthy();
 
     await waitTerminal(manager, retriedTaskId);
-    const second = parsePayload(await client.callTool({ name: 'dsh_result', arguments: { task_id: retriedTaskId } }));
+    const second = parsePayload(await client.callTool({ name: 'worker_result', arguments: { task_id: retriedTaskId } }));
     expect(second.status).toBe('succeeded');
     expect(second.output).toBe('ok-after-approval');
     expect(fake.calls.map((call) => call.permissionMode)).toEqual(['workspace-write', 'danger-full-access']);
@@ -150,14 +150,14 @@ describe('审批桥（dsh_result）', () => {
   it('客户端不支持 elicitation：返回 unsupported + retry_args，不重试', async () => {
     const { client, manager } = await setup({ elicitation: false });
     const run = parsePayload(
-      await client.callTool({ name: 'dsh_run', arguments: { task: '需要审批的任务', cwd: process.cwd() } }),
+      await client.callTool({ name: 'worker_run', arguments: { task: '需要审批的任务', cwd: process.cwd() } }),
     );
     const taskId = String(run.task_id);
     await waitTerminal(manager, taskId);
-    const result = parsePayload(await client.callTool({ name: 'dsh_result', arguments: { task_id: taskId } }));
+    const result = parsePayload(await client.callTool({ name: 'worker_result', arguments: { task_id: taskId } }));
     const approval = result.approval as Record<string, unknown>;
     expect(approval.status).toBe('unsupported');
-    // leader 无法走交互审批时，可直接用 retry_args 原样重提 dsh_run，不必自行猜测参数
+    // leader 无法走交互审批时，可直接用 retry_args 原样重提 worker_run，不必自行猜测参数
     expect(approval.retry_args).toEqual({
       permission_mode: 'danger-full-access',
       cwd: process.cwd(),
@@ -169,11 +169,11 @@ describe('审批桥（dsh_result）', () => {
   it('用户拒绝授权：返回 declined + retry_args，不自动重试', async () => {
     const { client, manager, elicitations } = await setup({ elicitation: true, elicitAction: 'decline' });
     const run = parsePayload(
-      await client.callTool({ name: 'dsh_run', arguments: { task: '需要审批的任务', cwd: process.cwd() } }),
+      await client.callTool({ name: 'worker_run', arguments: { task: '需要审批的任务', cwd: process.cwd() } }),
     );
     const taskId = String(run.task_id);
     await waitTerminal(manager, taskId);
-    const result = parsePayload(await client.callTool({ name: 'dsh_result', arguments: { task_id: taskId } }));
+    const result = parsePayload(await client.callTool({ name: 'worker_result', arguments: { task_id: taskId } }));
     const approval = result.approval as Record<string, unknown>;
     expect(approval.status).toBe('declined');
     // 拒绝后 leader 仍拿到完整重提参数，可自行决定是否重提

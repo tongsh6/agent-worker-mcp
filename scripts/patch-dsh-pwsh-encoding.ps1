@@ -13,7 +13,7 @@
 # DSH 升级后（文件被覆盖）需重新执行本脚本；可重复执行（幂等）。
 
 param(
-  [string]$DshDir = $(if ($env:DSH_MCP_DSH_DIR) { $env:DSH_MCP_DSH_DIR } else { 'D:\dsh-harness' })
+  [string]$DshDir = $(if ($env:WORKER_DSH_DIR) { $env:WORKER_DSH_DIR } else { 'D:\dsh-harness' })
 )
 
 $ErrorActionPreference = 'Stop'

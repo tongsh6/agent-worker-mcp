@@ -23,20 +23,20 @@ type Extra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 const RUN_PERMISSION_MODES = [...PERMISSION_MODES, 'auto'] as unknown as [string, ...string[]];
 
 const INSTRUCTIONS = [
-  'DSH（DeepSeek Harness）worker：把可验收的完整工作单元交给本机 DSH 执行，并返回结果。',
-  '粒度原则（最重要）：一个 dsh_run = 一个可独立验收的工作单元，默认包含「定位 → 实现/修改 → 自测 → 证据汇总」。典型粒度：一个功能点、一个 bug、一个测试修复批次、一次跨文件重构。禁止把同一工作拆成逐文件/逐命令/逐步骤的微任务——那会让 leader 付出更多思考与往返 token，反而更慢。',
-  '分工原则：leader 负责决策与验收，DSH 负责执行与迭代；执行密集（读代码/改文件/跑测试/机械重构/批量核对）交给 DSH，需要业务语义/方案权衡/根因判断时 leader 先决策再外包。任务建议写 [已定决策] 与 [待你判断]，DSH 遇到需决策的分支应停下汇报，不要猜。',
+  '多执行体 worker：把可验收的完整工作单元交给本机执行体（默认 DSH，可选 Kimi Code，按任务切换）执行，并返回结果与可验收证据。',
+  '粒度原则（最重要）：一个 worker_run = 一个可独立验收的工作单元，默认包含「定位 → 实现/修改 → 自测 → 证据汇总」。典型粒度：一个功能点、一个 bug、一个测试修复批次、一次跨文件重构。禁止把同一工作拆成逐文件/逐命令/逐步骤的微任务——那会让 leader 付出更多思考与往返 token，反而更慢。',
+  '分工原则：leader 负责决策与验收，执行体负责执行与迭代；执行密集（读代码/改文件/跑测试/机械重构/批量核对）交给 worker，需要业务语义/方案权衡/根因判断时 leader 先决策再外包。任务建议写 [已定决策] 与 [待你判断]，执行体遇到需决策的分支应停下汇报，不要猜。',
   '任务文本四要素：目标（做什么、为什么）、范围（可改/不可改、入口文件可选——不知道就不写）、验收（要跑的命令与期望结果，失败附输出）、证据（变更文件清单 + 测试结果 + 风险点）。给目标与约束，不要让 DSH 逐步等你确认；DSH 会自己规划多步工具调用。',
-  '使用顺序：1) dsh_run 提交（可带 wait_s=60–120 在本次调用里直接等结果）；2) dsh_status(task_id, wait_s=长轮询，建议 60–120s) 等到终态；3) dsh_result 取结果；中断用 dsh_cancel。不要 5–25 秒高频轮询，也不要在 DSH 执行期间重复做同一件事。',
+  '使用顺序：1) worker_run 提交（可带 wait_s=60–120 在本次调用里直接等结果）；2) worker_status(task_id, wait_s=长轮询，建议 60–120s) 等到终态；3) worker_result 取结果；中断用 worker_cancel。不要 5–25 秒高频轮询，也不要在执行体执行期间重复做同一件事。',
   'cwd 必须是具体项目目录绝对路径（不要用用户主目录；Windows 沙箱下 shell 可能不可用）。',
   'permission_mode：默认 auto（worker 按 cwd 能力自动选 workspace-write / worktree / read-only / danger-full-access，调用方不需要手选）；也可显式传 read-only / workspace-write / danger-full-access。',
-  '执行后端：默认不要传 backend，跟随 worker 全局默认（DSH_MCP_BACKEND）；只有明确需要 Kimi Code 的额度/模型时才传 backend="kimi"。两者能力不同，用 dsh_describe.backend_capabilities 查；dsh_result.capability_gaps 会列出本次任务实际缺失的能力（Kimi 无计费级 token 用量与 token 预算护栏、无 OS 级沙箱与 ACL/worktree 兜底）。',
-  '并行：彼此独立的工作流用一次 dsh_batch_run 派发（每个任务仍各自包含完整验收），不要拆成串行小任务。',
-  '续聊：同一工作单元后续修正把首次返回的 session_id 传回 dsh_run，不要新建多个孤立任务。',
-  '验收：leader 只审阅结构化事实并决定是否返工——优先看 dsh_result 的 evidence（命令退出码/变更文件/git diff 摘要）与 outcome；outcome=needs_decision 时用原 session_id 回答；output 是 DSH 的叙述，不作为唯一依据。不要逐步重做 DSH 已完成的工作；DSH 失败时把 error 原样反馈用户。',
-  '历史任务用 dsh_tasks 回顾；审计事件用 dsh_audit；dsh_result 输出过长落盘时用 dsh_read_result 分页读取（source=result/events/diff/evidence）；运行指标用 dsh_metrics。',
+  '执行后端：默认不要传 backend，跟随 worker 全局默认（WORKER_BACKEND）；只有明确需要 Kimi Code 的额度/模型时才传 backend="kimi"。两者能力不同，用 worker_describe.backend_capabilities 查；worker_result.capability_gaps 会列出本次任务实际缺失的能力（Kimi 无计费级 token 用量与 token 预算护栏、无 OS 级沙箱与 ACL/worktree 兜底）。',
+  '并行：彼此独立的工作流用一次 worker_batch_run 派发（每个任务仍各自包含完整验收），不要拆成串行小任务。',
+  '续聊：同一工作单元后续修正把首次返回的 session_id 传回 worker_run，不要新建多个孤立任务。',
+  '验收：leader 只审阅结构化事实并决定是否返工——优先看 worker_result 的 evidence（命令退出码/变更文件/git diff 摘要）与 outcome；outcome=needs_decision 时用原 session_id 回答；output 是执行体的叙述，不作为唯一依据。不要逐步重做 worker 已完成的工作；执行体失败时把 error 原样反馈用户。',
+  '历史任务用 worker_tasks 回顾；审计事件用 worker_audit；worker_result 输出过长落盘时用 worker_read_result 分页读取（source=result/events/diff/evidence）；运行指标用 worker_metrics。',
   '长任务依赖异步任务模型：不要在一次工具调用里反复短轮询等待。',
-  '用量与成本：用 dsh_usage(days, cwd) 查看窗口内任务数/耗时/DSH token 与估算费用（单价可用 DSH_MCP_PRICE_* 覆盖）；单任务费用见 dsh_result.usage.cost_usd/cost_cny。费用是估算值，仅供参考。',
+  '用量与成本：用 worker_usage(days, cwd) 查看窗口内任务数/耗时/DSH token 与估算费用（单价可用 WORKER_PRICE_* 覆盖）；单任务费用见 worker_result.usage.cost_usd/cost_cny。费用是估算值，仅供参考。',
   '重试安全：同一工作单元重试时可带相同的 idempotency_key，重复提交会返回同一个 task，不会重复派活。',
   '控制 DSH 上下文：在 task 里要求 DSH 先用 grep/glob 定位、只读必要片段（DSH 的 token 大头是 cacheRead）；大结果让它写文件、只回摘要，再用 max_chars/offset 分页读取。',
 ].join('\n');
@@ -44,11 +44,11 @@ const INSTRUCTIONS = [
 export interface WorkerServerDeps {
   manager: TaskManager;
   config: WorkerConfig;
-  /** 可选：审计日志（HTTP 模式由 index 注入；未注入时 dsh_audit 返回错误）。 */
+  /** 可选：审计日志（HTTP 模式由 index 注入；未注入时 worker_audit 返回错误）。 */
   audit?: AuditLog;
   /** 可选：批量任务管理器（未注入时批量工具返回错误）。 */
   batches?: BatchManager;
-  /** 可选：运行时信息（进程/后端池/OTel 状态），供 dsh_metrics 使用。 */
+  /** 可选：运行时信息（进程/后端池/OTel 状态），供 worker_metrics 使用。 */
   runtimeInfo?: () => Record<string, unknown>;
   /** 可选：幂等键索引（缺省按 config.idemDir 自动创建）。 */
   idem?: IdempotencyStore;
@@ -76,15 +76,15 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
     const message = error instanceof Error ? error.message : String(error);
     return {
       isError: true,
-      content: [{ type: 'text' as const, text: `DSH worker 错误 [${code}]：${message}` }],
+      content: [{ type: 'text' as const, text: `worker 错误 [${code}]：${message}` }],
       structuredContent: { error: { code, message } },
     };
   };
 
-  registerTool(server, 'dsh_run', {
+  registerTool(server, 'worker_run', {
     title: '提交 DSH 任务',
     description:
-      '把一个可验收的完整工作单元（功能点/bug/测试修复批次/跨文件重构）交给本机 DSH 异步执行，立即返回 task_id。DSH 自己规划并执行多步工具调用（读代码、改文件、跑测试），一次任务应覆盖「实现 + 自测 + 证据」；不要提交单步/逐文件微任务。之后用 dsh_status 长轮询（wait_s 60–120）到终态，dsh_result 取结果；中断用 dsh_cancel。cwd 传当前项目绝对路径。',
+      '把一个可验收的完整工作单元（功能点/bug/测试修复批次/跨文件重构）交给本机 DSH 异步执行，立即返回 task_id。DSH 自己规划并执行多步工具调用（读代码、改文件、跑测试），一次任务应覆盖「实现 + 自测 + 证据」；不要提交单步/逐文件微任务。之后用 worker_status 长轮询（wait_s 60–120）到终态，worker_result 取结果；中断用 worker_cancel。cwd 传当前项目绝对路径。',
     inputSchema: {
       task: z
         .string()
@@ -92,13 +92,13 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
         .describe(
           '完整工作单元描述，建议包含：目标、[已定决策]、[待你判断]、[入口]（可选）、范围（可改/不可改）、验收命令与期望、证据要求；给目标与约束，不要写逐步操作清单',
         ),
-      cwd: z.string().optional().describe('任务执行目录（绝对路径）；缺省依次用 DSH_MCP_DEFAULT_CWD、worker 进程 cwd'),
+      cwd: z.string().optional().describe('任务执行目录（绝对路径）；缺省依次用 WORKER_DEFAULT_CWD、worker 进程 cwd'),
       session_id: z.string().optional().describe('续聊已有 DSH 会话时传入；同一 session 的任务串行执行'),
       backend: z
         .enum(['dsh', 'kimi'])
         .optional()
         .describe(
-          '专家开关：默认不要传，跟随全局默认（DSH_MCP_BACKEND）。只有明确需要 Kimi Code 的额度/模型时才传 kimi；能力差异见 dsh_describe.backend_capabilities',
+          '专家开关：默认不要传，跟随全局默认（WORKER_BACKEND）。只有明确需要 Kimi Code 的额度/模型时才传 kimi；能力差异见 worker_describe.backend_capabilities',
         ),
       permission_mode: z
         .enum(RUN_PERMISSION_MODES)
@@ -110,18 +110,18 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
         .min(0)
         .max(600)
         .optional()
-        .describe('可选：提交后在本次调用里等待最多 N 秒（建议 60–120），减少 dsh_status 往返；任务未结束时返回中间状态'),
+        .describe('可选：提交后在本次调用里等待最多 N 秒（建议 60–120），减少 worker_status 往返；任务未结束时返回中间状态'),
       idempotency_key: z
         .string()
         .min(1)
         .max(200)
         .optional()
-        .describe('幂等键（可选）：同一 key 的重复提交返回同一个 task，重试不会重复派活（默认 24h 内有效，DSH_MCP_IDEM_TTL_H 可配）'),
+        .describe('幂等键（可选）：同一 key 的重复提交返回同一个 task，重试不会重复派活（默认 24h 内有效，WORKER_IDEM_TTL_H 可配）'),
     },
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
     handler: async (args, extra) => {
       try {
-        // cwd 优先级：显式参数 > DSH_MCP_DEFAULT_CWD > worker 进程 cwd（stdio 启动时通常是 leader 的项目目录）
+        // cwd 优先级：显式参数 > WORKER_DEFAULT_CWD > worker 进程 cwd（stdio 启动时通常是 leader 的项目目录）
         const rawCwd = args.cwd ?? config.defaultCwd ?? process.cwd();
         const cwd = validateCwd(rawCwd, config);
         const progressToken = extra._meta?.progressToken;
@@ -199,8 +199,8 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
           created_at: current.createdAt,
           idempotent_reuse: idempotentReuse,
           hint: idempotentReuse
-            ? '幂等命中：已复用同 idempotency_key 的任务（未重复派活）。用 dsh_status/dsh_result 取进度与结果。'
-            : '任务已受理：用 dsh_status 轮询（wait_s 可长轮询取增量事件），结束后用 dsh_result 取结果；需要中断用 dsh_cancel。',
+            ? '幂等命中：已复用同 idempotency_key 的任务（未重复派活）。用 worker_status/worker_result 取进度与结果。'
+            : '任务已受理：用 worker_status 轮询（wait_s 可长轮询取增量事件），结束后用 worker_result 取结果；需要中断用 worker_cancel。',
         };
         if (!args.wait_s || args.wait_s <= 0) return ok(created);
         const deadline = Date.now() + args.wait_s * 1_000;
@@ -218,8 +218,8 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
         // 终态那次轮询可能是空增量：run 返回等待期间第一页非空摘要，保持 events 与 next_cursor 对应。
         const visible = firstPage ?? status;
         const hint = isTerminal(status.status)
-          ? '任务已结束：用 dsh_result 取结果；完整原始事件用 dsh_read_result(source=events) 读取。'
-          : '仍在运行：用 dsh_status(cursor=next_cursor, wait_s=60~120) 继续等待。';
+          ? '任务已结束：用 worker_result 取结果；完整原始事件用 worker_read_result(source=events) 读取。'
+          : '仍在运行：用 worker_status(cursor=next_cursor, wait_s=60~120) 继续等待。';
         const runBase: Record<string, unknown> = {
           ...created,
           session_id: status.session_id ?? created.session_id ?? null,
@@ -244,14 +244,14 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
     },
   });
 
-  registerTool(server, 'dsh_status', {
+  registerTool(server, 'worker_status', {
     title: '查询 DSH 任务状态',
     description:
       `查询任务状态与增量事件摘要（单条事件 ≤ ${EVENT_SUMMARY_MAX_BYTES / 1024}KiB，单次载荷 ≤ ${Math.round(
         config.maxStatusPayloadBytes / 1024,
-      )}KiB）；完整原始事件仍会落盘，用 dsh_read_result(source=events) 分页读取。默认 detail=summary 只返回状态/异常事件与 last_text（省 leader 上下文）；排查 worker 行为时用 detail=events。status 为 succeeded/failed/cancelled 表示结束，outcome 给出 completed/needs_decision/failed/cancelled。用 wait_s 长轮询（建议 60–120s）一次等更久，减少 leader 往返；不要用 5–25s 高频轮询。`,
+      )}KiB）；完整原始事件仍会落盘，用 worker_read_result(source=events) 分页读取。默认 detail=summary 只返回状态/异常事件与 last_text（省 leader 上下文）；排查 worker 行为时用 detail=events。status 为 succeeded/failed/cancelled 表示结束，outcome 给出 completed/needs_decision/failed/cancelled。用 wait_s 长轮询（建议 60–120s）一次等更久，减少 leader 往返；不要用 5–25s 高频轮询。`,
     inputSchema: {
-      task_id: z.string().min(1).describe('dsh_run 返回的任务 id'),
+      task_id: z.string().min(1).describe('worker_run 返回的任务 id'),
       cursor: z.number().int().min(0).optional().describe('上次返回的 next_cursor，用于只取增量事件'),
       wait_s: z
         .number()
@@ -259,7 +259,7 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
         .max(600)
         .optional()
         .describe(
-          `长轮询等待秒数（默认 0）；实际上限由 worker 配置 DSH_MCP_STATUS_WAIT_MAX_S 决定（当前 ${Math.round(config.statusWaitMaxMs / 1_000)}s）`,
+          `长轮询等待秒数（默认 0）；实际上限由 worker 配置 WORKER_STATUS_WAIT_MAX_S 决定（当前 ${Math.round(config.statusWaitMaxMs / 1_000)}s）`,
         ),
       detail: z
         .enum(['summary', 'events'])
@@ -281,12 +281,12 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
     },
   });
 
-  registerTool(server, 'dsh_result', {
+  registerTool(server, 'worker_result', {
     title: '获取 DSH 任务结果',
     description:
       '任务结束后获取最终结果。验收优先看 `evidence`（命令退出码、变更文件、git diff 摘要）与 `outcome`（completed/needs_decision/failed/cancelled）；失败/取消时看 `failure_kind`（如 sandbox_acl）、`sandbox_blocked`/`sandbox_blocked_detail` 与 `attempts`（逐次尝试 + 首次决策文本，避免归因丢失）；`output` 是 DSH 的叙述。输出过大时会自动落盘并返回文件路径；传 offset/max_chars 可在本次调用里直接分页续读。',
     inputSchema: {
-      task_id: z.string().min(1).describe('dsh_run 返回的任务 id'),
+      task_id: z.string().min(1).describe('worker_run 返回的任务 id'),
       offset: z
         .number()
         .int()
@@ -351,7 +351,7 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
             : {}),
           output_pagination: outputPagination,
           ...(artifacts.length > 0 && !paged
-            ? { read_hint: '完整产物可用 dsh_read_result（source=result/events，offset 分页）读取，或直接 dsh_result(offset=next_offset, max_chars=N) 续读' }
+            ? { read_hint: '完整产物可用 worker_read_result（source=result/events，offset 分页）读取，或直接 worker_result(offset=next_offset, max_chars=N) 续读' }
             : {}),
         });
       } catch (error) {
@@ -360,11 +360,11 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
     },
   });
 
-  registerTool(server, 'dsh_cancel', {
+  registerTool(server, 'worker_cancel', {
     title: '取消 DSH 任务',
     description: '取消排队中或运行中的任务：运行中的任务会杀掉整个进程树。',
     inputSchema: {
-      task_id: z.string().min(1).describe('dsh_run 返回的任务 id'),
+      task_id: z.string().min(1).describe('worker_run 返回的任务 id'),
     },
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     handler: async (args) => {
@@ -376,8 +376,8 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
     },
   });
 
-  registerTool(server, 'dsh_describe', {
-    title: '描述 DSH worker 能力',
+  registerTool(server, 'worker_describe', {
+    title: '描述 worker 能力',
     description: '返回 worker 版本、DSH 入口、默认参数与限制，便于 leader 自适应调用方式。',
     inputSchema: {},
     annotations: { readOnlyHint: true, openWorldHint: false },
@@ -387,20 +387,20 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
           name: config.name,
           version: config.version,
           tools: [
-            'dsh_run',
-            'dsh_status',
-            'dsh_result',
-            'dsh_cancel',
-            'dsh_tasks',
-            'dsh_audit',
-            'dsh_read_result',
-            'dsh_batch_run',
-            'dsh_batch_status',
-            'dsh_batch_result',
-            'dsh_search',
-            'dsh_metrics',
-            'dsh_usage',
-            'dsh_describe',
+            'worker_run',
+            'worker_status',
+            'worker_result',
+            'worker_cancel',
+            'worker_tasks',
+            'worker_audit',
+            'worker_read_result',
+            'worker_batch_run',
+            'worker_batch_status',
+            'worker_batch_result',
+            'worker_search',
+            'worker_metrics',
+            'worker_usage',
+            'worker_describe',
           ],
           dsh: {
             source: config.dsh.source,
@@ -467,7 +467,7 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
     },
   });
 
-  registerTool(server, 'dsh_tasks', {
+  registerTool(server, 'worker_tasks', {
     title: '列出 DSH 任务',
     description:
       '列出最近的任务摘要（task_id / 状态 / 任务预览 / cwd / 时间 / 错误），用于回顾历史与继续轮询。',
@@ -486,7 +486,7 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
     },
   });
 
-  registerTool(server, 'dsh_audit', {
+  registerTool(server, 'worker_audit', {
     title: '查询审计日志',
     description: '读取最近的审计事件（任务创建/开始/结束/取消、审批决定等），用于追溯与排障。',
     inputSchema: {
@@ -506,7 +506,7 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
     },
   });
 
-  registerTool(server, 'dsh_read_result', {
+  registerTool(server, 'worker_read_result', {
     title: '读取任务完整产物',
     description:
       '分页读取任务落盘产物：result=最终结果（超长落盘时）、events=完整事件流、diff=git.patch、evidence=结构化证据 JSON。仅限任务目录内。',
@@ -536,10 +536,10 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
     },
   });
 
-  registerTool(server, 'dsh_batch_run', {
+  registerTool(server, 'worker_batch_run', {
     title: '批量提交 DSH 任务',
     description:
-      '一次并行派发多个彼此独立、各自可验收的工作单元（每个任务仍应覆盖「实现+自测+证据」），立即返回 batch_id；用 dsh_batch_status / dsh_batch_result 聚合查询。不要用它串行拆解同一工作流。',
+      '一次并行派发多个彼此独立、各自可验收的工作单元（每个任务仍应覆盖「实现+自测+证据」），立即返回 batch_id；用 worker_batch_status / worker_batch_result 聚合查询。不要用它串行拆解同一工作流。',
     inputSchema: {
       tasks: z
         .array(
@@ -577,7 +577,7 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
           batch_id: batch.id,
           task_ids: batch.taskIds,
           count: batch.taskIds.length,
-          hint: '用 dsh_batch_status 轮询（wait_s 长轮询），结束后 dsh_batch_result 取聚合结果；单个任务仍可用 dsh_status/dsh_result。',
+          hint: '用 worker_batch_status 轮询（wait_s 长轮询），结束后 worker_batch_result 取聚合结果；单个任务仍可用 worker_status/worker_result。',
         });
       } catch (error) {
         return fail(error);
@@ -585,11 +585,11 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
     },
   });
 
-  registerTool(server, 'dsh_batch_status', {
+  registerTool(server, 'worker_batch_status', {
     title: '查询批量任务状态',
     description: '返回批量任务的整体状态、各子任务状态与计数；wait_s>0 时轮询到批量结束或超时。',
     inputSchema: {
-      batch_id: z.string().min(1).describe('dsh_batch_run 返回的 batch_id'),
+      batch_id: z.string().min(1).describe('worker_batch_run 返回的 batch_id'),
       wait_s: z.number().min(0).max(25).optional().describe('长轮询等待秒数（默认 0）'),
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
@@ -610,11 +610,11 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
     },
   });
 
-  registerTool(server, 'dsh_batch_result', {
+  registerTool(server, 'worker_batch_result', {
     title: '获取批量任务结果',
-    description: '返回批量中每个任务的最终输出/错误/耗时；单条输出超过 max_output_chars 会截断（完整内容用 dsh_read_result）。',
+    description: '返回批量中每个任务的最终输出/错误/耗时；单条输出超过 max_output_chars 会截断（完整内容用 worker_read_result）。',
     inputSchema: {
-      batch_id: z.string().min(1).describe('dsh_batch_run 返回的 batch_id'),
+      batch_id: z.string().min(1).describe('worker_batch_run 返回的 batch_id'),
       max_output_chars: z.number().int().min(100).max(100_000).optional().describe('单条输出最大字符数，默认 4000'),
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
@@ -637,7 +637,7 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
     },
   });
 
-  registerTool(server, 'dsh_search', {
+  registerTool(server, 'worker_search', {
     title: '检索历史任务内容',
     description: '在已记录任务的最终输出与工具结果里做子串检索，返回匹配任务与上下文片段。',
     inputSchema: {
@@ -656,7 +656,7 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
     },
   });
 
-  registerTool(server, 'dsh_metrics', {
+  registerTool(server, 'worker_metrics', {
     title: '查看运行指标',
     description:
       '返回任务计数、耗时分位（avg/p50/p95/max）、DSH 侧 token 汇总、并发限制、排队情况、后端与 OTel 状态；用于 leader 自适应与「省 token/提速」核对。',
@@ -748,10 +748,10 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
     },
   });
 
-  registerTool(server, 'dsh_usage', {
+  registerTool(server, 'worker_usage', {
     title: '查询用量与成本',
     description:
-      '按时间窗口聚合任务数/状态分布/耗时/DSH token 与估算费用（单价 DSH_MCP_PRICE_*、汇率 DSH_MCP_USD_CNY），并给出按 cwd 的 top 分布；数据来自任务记录（含重启恢复）。用于回答「这批活花了多少」。费用为估算值，仅供参考。',
+      '按时间窗口聚合任务数/状态分布/耗时/DSH token 与估算费用（单价 WORKER_PRICE_*、汇率 WORKER_USD_CNY），并给出按 cwd 的 top 分布；数据来自任务记录（含重启恢复）。用于回答「这批活花了多少」。费用为估算值，仅供参考。',
     inputSchema: {
       days: z.number().int().min(1).max(90).optional().describe('统计最近多少天，默认 1'),
       cwd: z.string().optional().describe('只统计某个工作目录（可选）'),
@@ -912,7 +912,7 @@ function isTerminal(status: TaskStatus): boolean {
 }
 
 /**
- * dsh_run(wait_s) 的整包 JSON 预算：created/hint/status 元数据与事件摘要一起计数，
+ * worker_run(wait_s) 的整包 JSON 预算：created/hint/status 元数据与事件摘要一起计数，
  * 超出时从尾部少放摘要；至少要保证首条摘要能放下，游标可继续。
  */
 function fitRunPayload(
@@ -959,7 +959,7 @@ interface ApprovalBridgeResult {
   required: boolean;
   status?: 'approved' | 'declined' | 'unsupported';
   retried_task_id?: string;
-  /** leader 可原样重提 dsh_run 的参数（declined / unsupported 分支提供，免去自行猜测 cwd/timeout） */
+  /** leader 可原样重提 worker_run 的参数（declined / unsupported 分支提供，免去自行猜测 cwd/timeout） */
   retry_args?: {
     permission_mode: 'danger-full-access';
     cwd: string;
@@ -1006,7 +1006,7 @@ async function bridgeApproval(
         status: 'declined',
         retry_args: retryArgs,
         message:
-          '用户未授权重试，任务保持失败状态；如需继续，可直接用返回的 retry_args 重新调用 dsh_run。',
+          '用户未授权重试，任务保持失败状态；如需继续，可直接用返回的 retry_args 重新调用 worker_run。',
       };
     }
   } catch (error) {
@@ -1016,7 +1016,7 @@ async function bridgeApproval(
       required: true,
       status: 'unsupported',
       retry_args: retryArgs,
-      message: `当前客户端不支持 elicitation（${message}）。请让用户手动以 permission_mode=danger-full-access 重新提交任务，或直接用返回的 retry_args 重新调用 dsh_run。`,
+      message: `当前客户端不支持 elicitation（${message}）。请让用户手动以 permission_mode=danger-full-access 重新提交任务，或直接用返回的 retry_args 重新调用 worker_run。`,
     };
   }
 
@@ -1037,7 +1037,7 @@ async function bridgeApproval(
     required: true,
     status: 'approved',
     retried_task_id: retried.id,
-    message: '已授权并以 danger-full-access 重新提交；请用 dsh_status 轮询新任务，再用 dsh_result 取结果。',
+    message: '已授权并以 danger-full-access 重新提交；请用 worker_status 轮询新任务，再用 worker_result 取结果。',
   };
 }
 

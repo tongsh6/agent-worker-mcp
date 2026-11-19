@@ -2,7 +2,7 @@ import type { TokenUsage } from './types.js';
 
 /**
  * DeepSeek 单价（美元 / 百万 token），仅供费用估算。
- * 合并自本机 Codex 在用的 dsh-mcp bridge v2.2.0（`dsh_usage` / 成本记账）。
+ * 合并自本机 Codex 在用的 dsh-mcp bridge v2.2.0（`worker_usage` / 成本记账）。
  */
 export interface PricingConfig {
   inputPerMTok: number;
@@ -12,7 +12,7 @@ export interface PricingConfig {
   usdCny: number;
 }
 
-/** 默认单价与汇率，均可用 DSH_MCP_PRICE_* / DSH_MCP_USD_CNY 覆盖。 */
+/** 默认单价与汇率，均可用 WORKER_PRICE_* / WORKER_USD_CNY 覆盖。 */
 export const DEFAULT_PRICING: PricingConfig = {
   inputPerMTok: 0.28,
   cacheReadPerMTok: 0.028,

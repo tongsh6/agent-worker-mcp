@@ -33,7 +33,7 @@ function makeUsageRunner() {
 }
 
 describe('TaskManager token 计量', () => {
-  it('累加事件 usage 并写入 dsh_result.usage.tokens', async () => {
+  it('累加事件 usage 并写入 worker_result.usage.tokens', async () => {
     const config = makeTestConfig({ cleanupIntervalMs: 0 });
     const manager = new TaskManager({ runner: makeUsageRunner(), store: new MemoryStore(), config });
     await manager.init();

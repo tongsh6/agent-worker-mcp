@@ -8,10 +8,10 @@
 #
 # 用法：
 #   pwsh -File scripts/patch-dsh-output-decoding.ps1 [-DshDir D:\dsh-harness]
-# 幂等；worker 启动时也会自动应用（DSH_MCP_DSH_PATCH=apply）。
+# 幂等；worker 启动时也会自动应用（WORKER_DSH_PATCH=apply）。
 
 param(
-  [string]$DshDir = $(if ($env:DSH_MCP_DSH_DIR) { $env:DSH_MCP_DSH_DIR } else { 'D:\dsh-harness' })
+  [string]$DshDir = $(if ($env:WORKER_DSH_DIR) { $env:WORKER_DSH_DIR } else { 'D:\dsh-harness' })
 )
 
 $ErrorActionPreference = 'Stop'
