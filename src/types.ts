@@ -128,6 +128,8 @@ export interface TaskRecord {
   /** 调用方请求续聊；首次任务的预分配 ID 仅用于 worker 跟踪。 */
   resumeRequested?: boolean;
   permissionMode: string;
+  /** 执行该任务的后端（dsh / kimi）；缺省的历史记录视为 dsh。 */
+  backend?: 'dsh' | 'kimi';
   /** 用户请求的权限模式（auto 或显式）；用于区分 cwd 能力缓存与执行策略。 */
   requestedPermissionMode?: string;
   /** 本次任务允许的最长运行时间（毫秒）；缺省用配置默认值。 */
@@ -141,6 +143,8 @@ export interface TaskRecord {
   timedOut: boolean;
   /** 任务内 DSH 模型调用的 token 用量（来自 session 事件 usage）。 */
   usageTokens?: TokenUsage;
+  /** Kimi 后端的上下文窗口占用（ACP usage_update 的 used/size）；与计费口径的 usageTokens 不同。 */
+  contextTokens?: { used: number; size?: number };
   /** 沙箱 ACL 授权失败后自动降级的记录（缺省 = 未降级）。 */
   sandboxFallback?: SandboxFallback;
   /** 本次尝试是否观察到沙箱 ACL 失败（工具结果里出现 grantWrite Win32 5）。 */

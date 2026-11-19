@@ -45,6 +45,8 @@ export interface TaskRunInput {
   /** 仅在调用方请求续聊的首次尝试时提供，供 headless 恢复已存在的会话。 */
   resumeSessionId?: string;
   permissionMode: string;
+  /** 任务级后端覆盖（dsh / kimi）；缺省走 router 的全局默认。 */
+  backend?: 'dsh' | 'kimi';
   timeoutMs: number;
   /** 第几次尝试（1=首次；沙箱 ACL 降级重试为 2，用于生成新 session id）。 */
   attempt?: number;
@@ -67,6 +69,8 @@ export interface TaskCreateInput {
   sessionId?: string;
   permissionMode?: string;
   timeoutMs?: number;
+  /** 任务级后端覆盖（dsh / kimi）；缺省走全局默认，实现「随时切换」。 */
+  backend?: 'dsh' | 'kimi';
   /** 幂等键（可选）：由 server 层去重后透传，落进任务记录便于追溯。 */
   idempotencyKey?: string;
 }
@@ -201,6 +205,7 @@ export class TaskManager {
       ...(input.sessionId ? { resumeRequested: true } : {}),
       requestedPermissionMode: requestedMode,
       permissionMode,
+      ...(input.backend ? { backend: input.backend } : {}),
       timeoutMs: input.timeoutMs ?? config.defaultTimeoutMs,
       createdAt: this.now(),
       workerPid: process.pid,
@@ -939,6 +944,7 @@ export class TaskManager {
       sessionId: record.sessionId,
       ...(attempt === 1 && record.resumeRequested && record.sessionId ? { resumeSessionId: record.sessionId } : {}),
       permissionMode,
+      ...(record.backend ? { backend: record.backend } : {}),
       timeoutMs,
       attempt,
       ...(record.sessionId ? { resumeContext: this.buildResumeContext(record) } : {}),
@@ -966,6 +972,13 @@ export class TaskManager {
     // DSH 实际 session id（首次 / -r 重试 / resume 换新）以事件为准回填，保证跨 run/status/result/tasks 一致。
     if (event.type === 'session' && typeof event.sessionId === 'string') {
       this.setSessionId(record, event.sessionId);
+    }
+    if (event.type === 'status' && event.phase === 'context_usage') {
+      const used = (event as { context_tokens?: unknown }).context_tokens;
+      const size = (event as { max_context_tokens?: unknown }).max_context_tokens;
+      if (typeof used === 'number') {
+        record.contextTokens = { used, ...(typeof size === 'number' ? { size } : {}) };
+      }
     }
     record.events.push(event);
     // 只有「workspace-write 模式 + 工具真的报错」才认作 ACL 沙箱失败；read-only / danger-full-access / 纯文本引用不算

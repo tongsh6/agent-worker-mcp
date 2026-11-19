@@ -11,6 +11,9 @@ import { IdempotencyStore } from './idempotency.js';
 import { OtelSpanExporter } from './otel.js';
 import { Notifier } from './notifier.js';
 import { createWorkerServer } from './server.js';
+import { KimiBackendPool } from './kimi-pool.js';
+import { createKimiRunner } from './kimi-runner.js';
+import { createRouterRunner } from './router-runner.js';
 import { SdkBackendPool } from './sdk-pool.js';
 import { createSdkRunner } from './sdk-runner.js';
 import { JsonlTaskStore } from './store.js';
@@ -40,8 +43,9 @@ const headlessRunner: TaskRunner = (input) =>
   });
 
 let sdkPool: SdkBackendPool | undefined;
-const runner: TaskRunner =
-  config.backend === 'sdk'
+// DSH 侧执行链：sdk 优先 + headless 兜底（构造时不启动进程，真正的后端在首个任务时懒启动）
+const dshRunner: TaskRunner =
+  config.backend === 'sdk' || config.backend === 'kimi'
     ? (() => {
         sdkPool = new SdkBackendPool({
           spawn: config.dsh,
@@ -58,6 +62,22 @@ const runner: TaskRunner =
         return createFallbackRunner({ primary: sdkRunner, fallback: headlessRunner });
       })()
     : headlessRunner;
+
+// Kimi Code CLI 侧执行体：与 DSH 并存，按任务切换（dsh_run(backend)），不替换 DSH
+// 进程按 cwd 池化复用；空闲回收，取消超时的后端会被驱逐重建
+const kimiPool = new KimiBackendPool({
+  command: config.kimi.command,
+  args: config.kimi.args,
+  initTimeoutMs: config.kimi.initTimeoutMs,
+  idleMs: config.kimi.idleMs,
+});
+const kimiRunner: TaskRunner = createKimiRunner({ pool: kimiPool });
+
+const runner: TaskRunner = createRouterRunner({
+  dsh: dshRunner,
+  kimi: kimiRunner,
+  defaultKind: config.backend === 'kimi' ? 'kimi' : 'dsh',
+});
 
 const store = new JsonlTaskStore(config.tasksDir);
 const audit = new AuditLog(config.auditDir);
@@ -95,6 +115,7 @@ managerRef = manager;
 const runtimeInfo = (): Record<string, unknown> => ({
   backend: config.backend,
   sdk_pool: sdkPool?.stats() ?? null,
+  kimi_pool: kimiPool.stats(),
   uptime_s: Math.round(process.uptime()),
   rss_mb: Math.round(process.memoryUsage().rss / 1_000_000),
   transport: config.transport,
@@ -138,6 +159,8 @@ if (config.backend === 'sdk') {
       config.sdk.idleMs / 60_000,
     )}min）`,
   );
+} else if (config.backend === 'kimi') {
+  log(`默认后端=kimi（DSH 侧仍可用：dsh_run(backend="dsh")；池空闲回收=${Math.round(config.kimi.idleMs / 60_000)}min）`);
 } else {
   log(`后端=headless（每任务一个进程，profile=${config.profile}）`);
 }
@@ -165,6 +188,7 @@ async function shutdown(signal: string): Promise<void> {
   // 给结果回写留一点时间，避免 meta 停在 running
   await new Promise((resolve) => setTimeout(resolve, 200));
   if (sdkPool) await sdkPool.shutdown().catch(() => undefined);
+  await kimiPool.shutdown().catch(() => undefined);
   if (httpServer) await httpServer.close().catch(() => undefined);
   try {
     await mcpServer?.close();
