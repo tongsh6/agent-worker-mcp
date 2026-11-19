@@ -1,0 +1,16 @@
+# 源码与文档统一 LF 存储：避免 Windows 上编辑器/写入工具把整文件改成 CRLF，
+# 导致 git diff 出现成千上万行噪声（曾把 159 行改动放大成 3660 行）。
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.cjs   text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# Windows 脚本保持 CRLF：cmd/powershell 对 LF 兼容性差
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
