@@ -172,13 +172,19 @@ export function createWorkerServer(deps: WorkerServerDeps): McpServer {
             { onProgress },
           );
           if (idemKey) {
-            const registered = creation.then(async (created) => {
+            // 必须等「落盘索引写完」再移除 pending 表：
+            // 否则 remember 未完成的窗口里，第二次提交既查不到索引、也查不到 pending，会重复建任务。
+            const registered = (async () => {
+              const created = await creation;
               await idem.remember(idemKey, created.id).catch(() => undefined);
-              return created.id;
-            });
-            pendingIdemTasks.set(idemKey, registered);
+              return created;
+            })();
+            pendingIdemTasks.set(
+              idemKey,
+              registered.then((created) => created.id),
+            );
             try {
-              record = await creation;
+              record = await registered;
             } finally {
               pendingIdemTasks.delete(idemKey);
             }
