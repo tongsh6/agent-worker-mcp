@@ -4,6 +4,19 @@
 
 > 角色模型：leader（决策、编排）通过 MCP 调用 worker；worker 按任务选择执行体（`backend=dsh|kimi`，默认 dsh），在真实项目目录里执行长任务（读代码、改文件、跑命令、跑测试），只回传结果与**可验收的证据**。
 
+## 为什么做这个
+
+**用便宜额度换贵额度。**
+
+leader（Claude Code / Codex / ChatGPT）的额度是稀缺且昂贵的订阅资源，烧在「读 5 个文件改 1 行」「跑 12 轮测试」上极不划算；而执行密集的工作恰好是 token 消耗的大头，且**绝大多数中间信息用完即弃**。
+
+所以这里做的是：把 leader 的额度只留给**决策与验收**，把执行交给按量计费的执行体（DSH / Kimi Code）。第一次 A/B 实测：加速 **2.29x**、leader token 省 **46.0%**、cost 省 **31.1%**（见 `measure-runs/`）。
+
+两条推论直接决定了设计：
+
+- **省额度不能以质量为代价** → 必须回传可验收的 `evidence`（命令退出码、变更文件、diff），leader 靠事实验收而不是靠 worker 的叙述；
+- **交接本身有成本** → 一个 `worker_run` 必须是一个可独立验收的工作单元（实现 + 自测 + 证据），禁止微任务，否则省下的额度会在往返里赔回去。
+
 ## 现状（本地已验证）
 
 | 项 | 状态 |
@@ -345,6 +358,29 @@ pnpm measure:leader -- --since-hours 24
 
 ## 配置（环境变量）
 
+### 选执行体与模型
+
+两个后端的模型各自独立配置，互不影响：
+
+| 后端 | 变量 | 默认 | 绑定层 |
+|---|---|---|---|
+| DSH | `WORKER_SDK_MODEL` | `deepseek-flash` | **进程级**（换模型需重启后端） |
+| Kimi | `WORKER_KIMI_MODEL` | Kimi CLI 自身默认（`kimi-code/k3.1-pro`） | **会话级**（ACP config option，池化后零成本切换） |
+
+Kimi 可选值：`kimi-code/k3.1-pro`（默认）、`kimi-code/k3.1-pro-highspeed`（**2x usage cost**）、`kimi-code/k3`、`kimi-code/k3-256k`、`kimi-code/kimi-for-coding`、`kimi-code/kimi-for-coding-highspeed`。
+**配错会直接报错并列出可用项**，不会静默回落默认模型。
+
+`worker_describe.models` 会回报当前生效的模型与对应的环境变量：
+
+```json
+{ "dsh":  { "provider": "deepseek-official", "model": "deepseek-flash", "env": "WORKER_SDK_MODEL" },
+  "kimi": { "model": "kimi-code/k3", "env": "WORKER_KIMI_MODEL" } }
+```
+
+只开放**配置层**选择，不开放任务级裸模型名：DSH 的 model 是进程级，按任务选会让 cwd 进程池退化成 `cwd × model`；而且会让没有成本感知的 leader 决定账单。
+
+### 全部变量
+
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `WORKER_TRANSPORT` | `stdio` | MCP 传输：`stdio`（本地 leader）/ `http`（Streamable HTTP，远程 leader） |
@@ -363,6 +399,12 @@ pnpm measure:leader -- --since-hours 24
 | `WORKER_SDK_MAX_TOKENS` | 无 | 单次输出 token 上限（可选） |
 | `WORKER_SDK_IDLE_MIN` | `10` | 后端空闲多少分钟回收（1–240） |
 | `WORKER_SDK_INIT_TIMEOUT_S` | `300` | 后端 initialize 超时（秒）；失败自动重试 1 次，仍失败则自动降级 headless |
+| `WORKER_KIMI_COMMAND` | `kimi` | Kimi Code CLI 可执行文件 |
+| `WORKER_KIMI_ARGS` | `acp` | Kimi 启动参数（默认 `kimi acp`，ACP over stdio） |
+| `WORKER_KIMI_MODEL` | 无 | **会话级**模型，如 `kimi-code/k3`；留空 = Kimi CLI 默认 |
+| `WORKER_KIMI_INIT_TIMEOUT_S` | `60` | Kimi ACP 握手超时（秒） |
+| `WORKER_KIMI_IDLE_MIN` | `10` | Kimi 进程池空闲回收（分钟） |
+| `WORKER_KIMI_IDLE_AFTER_TOOL_S` | `120` | 工具完成后无事件多久主动收尾（防上游故障误判）；`0` = 关闭 |
 | `WORKER_DEFAULT_CWD` | 无 | 省略 `cwd` 时使用；没设则用 worker 进程 cwd（stdio 启动时通常是 leader 的项目目录） |
 | `WORKER_ALLOWED_CWDS` | 无 | 分号分隔的允许目录白名单（设置后只能在这些目录下跑） |
 | `WORKER_ALLOWED_ROOTS` | 无 | **兼容旧版 bridge** 的允许目录写法（平台分隔符：POSIX `:`、Windows `;`）；`WORKER_ALLOWED_CWDS` 优先 |
