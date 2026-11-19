@@ -55,6 +55,11 @@ export interface KimiRuntimeConfig {
    * 留空 = 用 Kimi CLI 自己的默认模型。配置了不存在的模型会在建会话时直接报错并列出可用项。
    */
   model?: string;
+  /**
+   * 会话级思考档位（ACP config option `thinking`：low / high / max）。
+   * 留空 = 用模型默认档位（k3 系默认 high）。配置错会直接报错并列出可用档位。
+   */
+  effort?: string;
 }
 
 /** 如何拉起 DSH：`node <bin.js>` 最稳（绕开 Windows .cmd 的 spawn 问题）。 */
@@ -204,6 +209,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       idleMs: readInt(env, 'WORKER_KIMI_IDLE_MIN', 10, 1, 240) * 60_000,
       idleAfterToolMs: readInt(env, 'WORKER_KIMI_IDLE_AFTER_TOOL_S', 120, 0, 3_600) * 1_000,
       ...(env.WORKER_KIMI_MODEL?.trim() ? { model: env.WORKER_KIMI_MODEL.trim() } : {}),
+      ...(env.WORKER_KIMI_EFFORT?.trim() ? { effort: env.WORKER_KIMI_EFFORT.trim() } : {}),
     },
     profile: env.WORKER_PROFILE?.trim() || 'headless',
     dsh: resolveDshEntry(env),

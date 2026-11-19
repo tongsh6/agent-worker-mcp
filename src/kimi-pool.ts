@@ -11,6 +11,8 @@ export interface KimiPoolOptions {
   idleAfterToolMs?: number;
   /** 会话级模型；缺省用 Kimi CLI 默认。 */
   model?: string;
+  /** 会话级思考档位（low/high/max）；缺省用模型默认。 */
+  effort?: string;
   sweepIntervalMs?: number;
   now?: () => number;
   /** 测试注入点：默认真实拉起 `kimi acp`。 */
@@ -65,6 +67,7 @@ export class KimiBackendPool {
         initTimeoutMs: this.options.initTimeoutMs,
         ...(this.options.idleAfterToolMs !== undefined ? { idleAfterToolMs: this.options.idleAfterToolMs } : {}),
         ...(this.options.model ? { model: this.options.model } : {}),
+        ...(this.options.effort ? { effort: this.options.effort } : {}),
       }),
     };
     this.entries.set(key, entry);

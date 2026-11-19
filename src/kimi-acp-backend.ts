@@ -318,6 +318,8 @@ export interface KimiSpawnOptions {
   idleAfterToolMs?: number;
   /** 会话级模型（ACP config option `model`）；缺省用 Kimi CLI 默认。 */
   model?: string;
+  /** 会话级思考档位（ACP config option `thinking`：low / high / max）；缺省用模型默认。 */
+  effort?: string;
 }
 
 export interface KimiAcpBackendInit {
@@ -330,6 +332,8 @@ export interface KimiAcpBackendInit {
   idleAfterToolMs?: number;
   /** 会话级模型（ACP config option `model`）；缺省用 Kimi CLI 默认。 */
   model?: string;
+  /** 会话级思考档位（ACP config option `thinking`）；缺省用模型默认。 */
+  effort?: string;
 }
 
 interface PendingPrompt {
@@ -368,14 +372,16 @@ export class KimiAcpBackend {
   private readonly sessionModes = new Map<string, string>();
   private readonly idleAfterToolMs: number;
   private readonly modelOverride?: string;
-  /** 最近一次会话可用的模型（来自 ACP configOptions），用于配置出错时给出候选。 */
-  private lastAvailableModels: string[] = [];
+  private readonly effortOverride?: string;
+  /** 最近一次会话的 configOptions（model / thinking 等），用于配置出错时给出候选。 */
+  private lastConfigOptions: Array<{ id?: string; options?: Array<{ value?: string }> }> = [];
   private replayDone: (() => void) | undefined;
 
   constructor(private readonly init: KimiAcpBackendInit) {
     this.pid = init.pid ?? null;
     this.idleAfterToolMs = init.idleAfterToolMs ?? DEFAULT_IDLE_AFTER_TOOL_MS;
     this.modelOverride = init.model?.trim() ? init.model.trim() : undefined;
+    this.effortOverride = init.effort?.trim() ? init.effort.trim() : undefined;
     init.client.onNotification('session/update', (params) => this.onUpdate(params));
     init.client.onRequest('session/request_permission', (params) => this.onPermission(params));
   }
@@ -403,6 +409,7 @@ export class KimiAcpBackend {
       diagnostics: () => stderrTail,
       ...(options.idleAfterToolMs !== undefined ? { idleAfterToolMs: options.idleAfterToolMs } : {}),
       ...(options.model ? { model: options.model } : {}),
+      ...(options.effort ? { effort: options.effort } : {}),
     });
     child.on('error', (error: Error) => backend.markClosed(error.message));
     child.on('exit', (code, signal) => {
@@ -451,7 +458,12 @@ export class KimiAcpBackend {
 
   /** 最近一次会话可用的模型列表（来自 ACP configOptions）；未建过会话时为空。 */
   get availableModels(): string[] {
-    return [...this.lastAvailableModels];
+    return this.availableValues('model');
+  }
+
+  /** 最近一次会话可用的思考档位（ACP `thinking`）；未建过会话时为空。 */
+  get availableEfforts(): string[] {
+    return this.availableValues('thinking');
   }
 
   get diagnostics(): string {
@@ -475,10 +487,10 @@ export class KimiAcpBackend {
     if (!result?.sessionId) {
       throw new WorkerError('internal', `Kimi ACP session/new 未返回 sessionId：${JSON.stringify(result)}`);
     }
-    this.captureModels(result.configOptions);
+    this.captureConfigOptions(result.configOptions);
     this.sessionModes.set(result.sessionId, permissionMode ?? this.init.permissionMode);
     await this.applyMode(result.sessionId, permissionMode);
-    await this.applyModel(result.sessionId);
+    await this.applyConfigOptions(result.sessionId);
     this.lastUsedAt = Date.now();
     return result.sessionId;
   }
@@ -493,7 +505,7 @@ export class KimiAcpBackend {
     await this.watchReplay();
     this.sessionModes.set(sessionId, permissionMode ?? this.init.permissionMode);
     await this.applyMode(sessionId, permissionMode);
-    await this.applyModel(sessionId);
+    await this.applyConfigOptions(sessionId);
     this.lastUsedAt = Date.now();
   }
 
@@ -606,32 +618,46 @@ export class KimiAcpBackend {
   }
 
   /**
-   * 会话级模型：配置了 WORKER_KIMI_MODEL 就切过去。
-   * 切不过去是**配置错误**，直接失败并把可用模型列出来——静默回落默认模型会让人以为生效了。
+   * 会话级可调项：模型（model）与思考档位（thinking）。
+   * 切不过去是**配置错误**，直接失败并列出该项的可用值——静默回落会让人以为生效了。
    */
-  private async applyModel(sessionId: string): Promise<void> {
-    const model = this.modelOverride;
-    if (!model) return;
+  private async applyConfigOptions(sessionId: string): Promise<void> {
+    await this.applyConfigValue(sessionId, 'model', this.modelOverride, 'WORKER_KIMI_MODEL');
+    await this.applyConfigValue(sessionId, 'thinking', this.effortOverride, 'WORKER_KIMI_EFFORT');
+  }
+
+  private async applyConfigValue(
+    sessionId: string,
+    configId: string,
+    value: string | undefined,
+    envName: string,
+  ): Promise<void> {
+    if (!value) return;
     try {
       const result = await this.init.client.request<{
         configOptions?: Array<{ id?: string; options?: Array<{ value?: string }> }>;
-      }>('session/set_config_option', { sessionId, configId: 'model', value: model }, 15_000);
-      this.captureModels(result?.configOptions);
+      }>('session/set_config_option', { sessionId, configId, value }, 15_000);
+      this.captureConfigOptions(result?.configOptions);
     } catch (error) {
-      const available = this.lastAvailableModels.length > 0 ? this.lastAvailableModels.join(', ') : '(未能取得候选列表)';
+      const available = this.availableValues(configId);
+      const label = configId === 'model' ? '模型' : '思考档位';
       throw new WorkerError(
         'bad_request',
-        `Kimi 模型「${model}」不可用（WORKER_KIMI_MODEL）。可用：${available}。原始错误：${error instanceof Error ? error.message : String(error)}`,
+        `Kimi ${label}「${value}」不可用（${envName}）。可用：${available.length > 0 ? available.join(', ') : '(未能取得候选列表)'}。原始错误：${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
 
-  private captureModels(configOptions?: Array<{ id?: string; options?: Array<{ value?: string }> }>): void {
-    const modelOption = configOptions?.find((option) => option.id === 'model');
-    const values = (modelOption?.options ?? [])
-      .map((option) => option.value)
+  private captureConfigOptions(configOptions?: Array<{ id?: string; options?: Array<{ value?: string }> }>): void {
+    if (!configOptions || configOptions.length === 0) return;
+    this.lastConfigOptions = configOptions;
+  }
+
+  private availableValues(configId: string): string[] {
+    const option = this.lastConfigOptions.find((item) => item.id === configId);
+    return (option?.options ?? [])
+      .map((item) => item.value)
       .filter((value): value is string => typeof value === 'string' && value.length > 0);
-    if (values.length > 0) this.lastAvailableModels = values;
   }
 
   /** session/load 后的回放一般几十毫秒到一两秒；用「静默」判据，最多等 REPLAY_MAX_MS。 */
